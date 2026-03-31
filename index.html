@@ -19,7 +19,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
+  import { getFirestore, collection, addDoc, updateDoc, deleteDoc, setDoc, getDocs, doc,
     onSnapshot, query, where, Timestamp }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -56,6 +56,7 @@
     vakantie:   { label: "Vakantie",          icon: "🏖️", color: "#ff9800" },
     bijzonder:  { label: "Bijzondere dag",    icon: "⭐", color: "#9c27b0" },
     sterfdag:   { label: "Sterfdag",          icon: "🕯️", color: "#546e7a"  },
+    training:   { label: "Training",           icon: "🏃", color: "#00897b"  },
   };
 
   // ── State ────────────────────────────────────
@@ -159,6 +160,25 @@
     // Google Calendar sync knop
     $("btn-gcal-sync").addEventListener("click", startGcalSync);
 
+    // Rooster wizard
+    $("rooster-wizard-overlay").addEventListener("click", e => {
+      if (e.target === $("rooster-wizard-overlay")) closeRoosterWizard();
+    });
+    $("btn-rw-cancel").addEventListener("click", closeRoosterWizard);
+    $("btn-rw-save").addEventListener("click",   saveRooster);
+    $("rw-jaar").addEventListener("change", () => {
+      $("rw-startdate").value = eersteZondagVanJaar(parseInt($("rw-jaar").value));
+    });
+
+    // Export modal
+    $("export-overlay").addEventListener("click", e => {
+      if (e.target === $("export-overlay")) closeExportModal();
+    });
+    $("btn-export-close").addEventListener("click",    closeExportModal);
+    $("btn-export-ics").addEventListener("click",      downloadICS);
+    $("btn-export-copy").addEventListener("click",     kopieerTekst);
+    $("export-wie").addEventListener("change", e => renderExportPreview(e.target.value));
+
     // all-day toggle
     $("ev-allday").addEventListener("change", () => {
       $("time-fields").style.display = $("ev-allday").checked ? "none" : "flex";
@@ -261,6 +281,8 @@
       renderAll();
     });
 
+    subscribeRooster();
+
     if (unsubEvents) unsubEvents();
     const evQ = query(collection(db, "events"), where("members", "array-contains", uid));
     unsubEvents = onSnapshot(evQ, snap => {
@@ -283,10 +305,11 @@
   // ── Render orchestrator ──────────────────────
   function renderAll() {
     renderHeader();
-    if      (currentView === "month") renderMonth();
-    else if (currentView === "week")  renderWeek();
-    else if (currentView === "day")   renderDay();
-    else if (currentView === "list")  renderList();
+    if      (currentView === "month")   renderMonth();
+    else if (currentView === "week")    renderWeek();
+    else if (currentView === "day")     renderDay();
+    else if (currentView === "list")    renderList();
+    else if (currentView === "rooster") renderRooster();
   }
 
   function renderHeader() {
@@ -299,6 +322,7 @@
       label = `${mon.getDate()} ${MONTHS[mon.getMonth()].slice(0,3)} – ${sun.getDate()} ${MONTHS[sun.getMonth()].slice(0,3)} ${sun.getFullYear()}`;
     } else if (currentView === "day")
       label = `${WEEKDAYS_LONG[viewDate.getDay()]} ${viewDate.getDate()} ${MONTHS[viewDate.getMonth()]} ${viewDate.getFullYear()}`;
+    else if (currentView === "rooster") label = "🏃 Trainingsrooster";
     else label = "Aankomende afspraken";
     $("view-title").textContent = label;
   }
@@ -770,6 +794,363 @@
     if (ev.repeat === "yearly")  return origin.getDate() === t.getDate() && origin.getMonth() === t.getMonth();
     return false;
   }
+  // ══════════════════════════════════════════════════════
+  // TRAININGSROOSTER MODULE
+  // ══════════════════════════════════════════════════════
+
+  // Rooster-state (wordt ook in Firestore opgeslagen)
+  let roosterConfig = null;   // { startDate, naam1, naam2, patroon, weken: [{datum, wie, swap}] }
+  let unsubRooster  = null;
+
+  function subscribeRooster() {
+    if (unsubRooster) unsubRooster();
+    const ref = doc(db, "roosters", currentUser.uid);
+    unsubRooster = onSnapshot(ref, snap => {
+      roosterConfig = snap.exists() ? snap.data() : null;
+      if (currentView === "rooster") renderRooster();
+    });
+  }
+
+  // ── Rooster weergave ──────────────────────────────────
+  function renderRooster() {
+    const grid = $("calendar-grid");
+    grid.innerHTML = "";
+    grid.className = "grid-rooster";
+
+    if (!roosterConfig) {
+      // Welkomstscherm: nieuw rooster aanmaken
+      const wrap = el("div", "rooster-welcome");
+      wrap.innerHTML = `
+        <div class="rooster-welcome-icon">🏃</div>
+        <h2>Trainingsrooster</h2>
+        <p>Maak een jaarplanning voor jouw training.<br>
+           Stel het basispatroon in en exporteer naar je trainingspartner.</p>
+        <button class="btn-primary" id="btn-rooster-nieuw" style="margin-top:16px;font-size:1rem;padding:12px 28px">
+          ＋ Nieuw rooster aanmaken
+        </button>
+      `;
+      grid.appendChild(wrap);
+      $("btn-rooster-nieuw").addEventListener("click", openRoosterWizard);
+      return;
+    }
+
+    // Header met acties
+    const hdr = el("div", "rooster-header");
+    hdr.innerHTML = `
+      <div class="rooster-hdr-left">
+        <span class="rooster-title">🏃 Trainingsrooster ${roosterConfig.jaar || ""}</span>
+        <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${roosterConfig.patroon[0]}/${roosterConfig.patroon[1]}</span>
+      </div>
+      <div class="rooster-hdr-actions">
+        <button class="btn-ghost btn-sm" id="btn-rooster-edit">✏️ Bewerken</button>
+        <button class="btn-ghost btn-sm" id="btn-rooster-export">📤 Exporteren</button>
+        <button class="btn-ghost btn-sm btn-danger-sm" id="btn-rooster-delete">🗑</button>
+      </div>
+    `;
+    grid.appendChild(hdr);
+    $("btn-rooster-edit").addEventListener("click", openRoosterWizard);
+    $("btn-rooster-export").addEventListener("click", openExportModal);
+    $("btn-rooster-delete").addEventListener("click", deleteRooster);
+
+    // Legenda
+    const leg = el("div", "rooster-legend");
+    leg.innerHTML = `
+      <span class="rleg-item"><span class="rleg-dot" style="background:#00897b"></span>${roosterConfig.naam1} (jij)</span>
+      <span class="rleg-item"><span class="rleg-dot" style="background:#5c6bc0"></span>${roosterConfig.naam2}</span>
+      <span class="rleg-item"><span class="rleg-dot rleg-swap"></span>Geruild</span>
+    `;
+    grid.appendChild(leg);
+
+    // Weeklijst
+    const list = el("div", "rooster-list");
+    const weken = roosterConfig.weken || [];
+    let lastMonth = -1;
+
+    weken.forEach((week, idx) => {
+      const d = new Date(week.datum + "T00:00:00");
+      if (d.getMonth() !== lastMonth) {
+        const mhdr = el("div", "rooster-month-hdr",
+          `${MONTHS[d.getMonth()]} ${d.getFullYear()}`);
+        list.appendChild(mhdr);
+        lastMonth = d.getMonth();
+      }
+
+      const isJij   = week.wie === "naam1";
+      const naam    = isJij ? roosterConfig.naam1 : roosterConfig.naam2;
+      const kleur   = isJij ? "#00897b" : "#5c6bc0";
+      const isPast  = d < today;
+
+      const row = el("div", `rooster-row${isPast ? " rooster-past" : ""}${week.swap ? " rooster-swapped" : ""}`);
+      row.innerHTML = `
+        <div class="rooster-datum">
+          <span class="rooster-dag">${WEEKDAYS_SHORT[d.getDay()]}</span>
+          <span class="rooster-dd">${String(d.getDate()).padStart(2,"0")}</span>
+          <span class="rooster-mnd">${MONTHS[d.getMonth()].slice(0,3)}</span>
+        </div>
+        <div class="rooster-wie" style="background:${kleur}20;border-left:3px solid ${kleur}">
+          <span class="rooster-naam" style="color:${kleur}">${naam}</span>
+          ${week.swap ? '<span class="rooster-swap-badge">↔ geruild</span>' : ""}
+          ${week.notitie ? `<span class="rooster-notitie">${week.notitie}</span>` : ""}
+        </div>
+        <div class="rooster-actions">
+          <button class="rooster-btn-swap" title="Ruil deze week" data-idx="${idx}">↔</button>
+          <button class="rooster-btn-note" title="Notitie" data-idx="${idx}">✏️</button>
+        </div>
+      `;
+      list.appendChild(row);
+    });
+
+    grid.appendChild(list);
+
+    // Event listeners voor swap/notitie knoppen
+    grid.querySelectorAll(".rooster-btn-swap").forEach(btn =>
+      btn.addEventListener("click", () => swapWeek(parseInt(btn.dataset.idx)))
+    );
+    grid.querySelectorAll(".rooster-btn-note").forEach(btn =>
+      btn.addEventListener("click", () => addNoteToWeek(parseInt(btn.dataset.idx)))
+    );
+  }
+
+  // ── Rooster wizard (aanmaken/bewerken) ───────────────
+  function openRoosterWizard() {
+    const cfg = roosterConfig;
+    const jaar = cfg?.jaar || new Date().getFullYear();
+    const naam1 = cfg?.naam1 || currentUser.displayName?.split(" ")[0] || "Ik";
+    const naam2 = cfg?.naam2 || "";
+    const pat1  = cfg?.patroon?.[0] ?? 2;
+    const pat2  = cfg?.patroon?.[1] ?? 2;
+    // Eerste zondag van het jaar als startdatum
+    const eersteZondag = cfg?.startDate || eersteZondagVanJaar(jaar);
+
+    const ov = $("rooster-wizard-overlay");
+    ov.style.display = "flex";
+    $("rw-jaar").value       = jaar;
+    $("rw-naam1").value      = naam1;
+    $("rw-naam2").value      = naam2;
+    $("rw-patroon1").value   = pat1;
+    $("rw-patroon2").value   = pat2;
+    $("rw-startdate").value  = eersteZondag;
+  }
+
+  function closeRoosterWizard() {
+    $("rooster-wizard-overlay").style.display = "none";
+  }
+
+  async function saveRooster() {
+    const jaar     = parseInt($("rw-jaar").value);
+    const naam1    = $("rw-naam1").value.trim() || "Ik";
+    const naam2    = $("rw-naam2").value.trim() || "Vriend";
+    const pat1     = parseInt($("rw-patroon1").value) || 2;
+    const pat2     = parseInt($("rw-patroon2").value) || 2;
+    const startStr = $("rw-startdate").value;
+
+    if (!startStr) { alert("Vul een startdatum in."); return; }
+
+    // Genereer alle zondagen in het jaar met basispatroon
+    const weken = genereerWeken(startStr, jaar, pat1, pat2,
+                                roosterConfig?.weken || []);
+
+    const config = {
+      jaar, naam1, naam2,
+      patroon:   [pat1, pat2],
+      startDate: startStr,
+      weken,
+      updatedAt: Timestamp.now()
+    };
+
+    await setDoc(doc(db, "roosters", currentUser.uid), config);
+    closeRoosterWizard();
+    showToast("✅ Rooster opgeslagen", "ok");
+
+    // Zet alle training-events in Firestore
+    await syncRoosterToEvents(config);
+  }
+
+  function genereerWeken(startStr, jaar, pat1, pat2, bestaandeWeken) {
+    const start = new Date(startStr + "T00:00:00");
+    const weken = [];
+    let patIdx  = 0;    // welke blok zijn we
+    let teller  = 0;    // hoe ver in huidig blok
+
+    // Bewaar bestaande swaps/notities op datum
+    const bestaandeMap = {};
+    bestaandeWeken.forEach(w => { bestaandeMap[w.datum] = w; });
+
+    let d = new Date(start);
+    while (d.getFullYear() <= jaar) {
+      const isoStr  = toISO(d);
+      const inBlok1 = (patIdx % 2 === 0);  // even blok = naam1, oneven = naam2
+      const wie     = inBlok1 ? "naam1" : "naam2";
+      const patLen  = inBlok1 ? pat1 : pat2;
+
+      const bestaande = bestaandeMap[isoStr];
+      weken.push({
+        datum:   isoStr,
+        wie:     bestaande?.swap ? (wie === "naam1" ? "naam2" : "naam1") : wie,
+        swap:    bestaande?.swap    || false,
+        notitie: bestaande?.notitie || "",
+        origineel: wie   // bewaar origineel patroon
+      });
+
+      teller++;
+      if (teller >= patLen) { teller = 0; patIdx++; }
+      d.setDate(d.getDate() + 7);
+    }
+    return weken;
+  }
+
+  async function syncRoosterToEvents(config) {
+    // Verwijder eerst bestaande training-events van deze user
+    const q = query(collection(db, "events"),
+      where("members", "array-contains", currentUser.uid),
+      where("type", "==", "training"),
+      where("rooster", "==", true)
+    );
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, "events", d.id))));
+
+    // Voeg nieuwe events toe
+    const batch = config.weken.map(week => ({
+      title:      `🏃 Training — ${week.wie === "naam1" ? config.naam1 : config.naam2}`,
+      type:       "training",
+      allDay:     true,
+      startDate:  week.datum,
+      endDate:    week.datum,
+      calendarId: "",
+      rooster:    true,
+      wie:        week.wie,
+      swap:       week.swap,
+      notitie:    week.notitie,
+      members:    [currentUser.uid],
+      createdAt:  Timestamp.now()
+    }));
+
+    await Promise.all(batch.map(ev => addDoc(collection(db, "events"), ev)));
+    showToast(`📅 ${batch.length} trainingen in agenda gezet`, "info");
+  }
+
+  // ── Swap week ─────────────────────────────────────────
+  async function swapWeek(idx) {
+    const weken = [...roosterConfig.weken];
+    const w     = { ...weken[idx] };
+    w.wie  = w.wie === "naam1" ? "naam2" : "naam1";
+    w.swap = !w.swap;
+    weken[idx] = w;
+    await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
+    await syncRoosterToEvents({ ...roosterConfig, weken });
+    showToast("↔ Week geruild", "ok");
+  }
+
+  async function addNoteToWeek(idx) {
+    const huidig = roosterConfig.weken[idx].notitie || "";
+    const nieuw  = prompt("Notitie voor deze week:", huidig);
+    if (nieuw === null) return;
+    const weken = [...roosterConfig.weken];
+    weken[idx] = { ...weken[idx], notitie: nieuw };
+    await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
+    showToast("📝 Notitie opgeslagen", "ok");
+  }
+
+  async function deleteRooster() {
+    if (!confirm("Rooster verwijderen? Dit verwijdert ook alle training-events uit je agenda.")) return;
+    await deleteDoc(doc(db, "roosters", currentUser.uid));
+    // Verwijder training events
+    const q = query(collection(db, "events"),
+      where("members", "array-contains", currentUser.uid),
+      where("type", "==", "training"),
+      where("rooster", "==", true)
+    );
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, "events", d.id))));
+    showToast("🗑 Rooster verwijderd", "warn");
+  }
+
+  // ── Export ────────────────────────────────────────────
+  function openExportModal() {
+    $("export-overlay").style.display = "flex";
+    renderExportPreview("naam2"); // standaard: export voor vriend
+  }
+  function closeExportModal() { $("export-overlay").style.display = "none"; }
+
+  function renderExportPreview(wie) {
+    const cfg   = roosterConfig;
+    const naam  = wie === "naam1" ? cfg.naam1 : cfg.naam2;
+    const weken = cfg.weken.filter(w => w.wie === wie);
+
+    // Tekstlijst
+    const lines = weken.map(w => {
+      const d = new Date(w.datum + "T00:00:00");
+      return `${WEEKDAYS_LONG[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}${w.notitie ? " — " + w.notitie : ""}`;
+    });
+
+    $("export-preview-naam").textContent = naam;
+    $("export-count").textContent        = weken.length;
+    $("export-tekst").value              = lines.join("
+");
+    $("export-wie").value                = wie;
+
+    // Update naam labels
+    $("export-lbl-naam1").textContent = cfg.naam1 + " (jij)";
+    $("export-lbl-naam2").textContent = cfg.naam2;
+  }
+
+  function generateICS(wie) {
+    const cfg   = roosterConfig;
+    const naam  = wie === "naam1" ? cfg.naam1 : cfg.naam2;
+    const weken = cfg.weken.filter(w => w.wie === wie);
+
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//MyAgenda//Trainingsrooster//NL",
+      "CALNAME:Training " + naam,
+      "X-WR-CALNAME:Training " + naam,
+    ];
+
+    weken.forEach(w => {
+      const d   = w.datum.replace(/-/g, "");
+      const uid = `training-${w.datum}-${wie}@myagenda`;
+      lines.push("BEGIN:VEVENT");
+      lines.push("UID:" + uid);
+      lines.push("DTSTART;VALUE=DATE:" + d);
+      lines.push("DTEND;VALUE=DATE:" + d);
+      lines.push("SUMMARY:🏃 Training");
+      if (w.notitie) lines.push("DESCRIPTION:" + w.notitie);
+      if (w.swap)    lines.push("COMMENT:Geruild");
+      lines.push("END:VEVENT");
+    });
+
+    lines.push("END:VCALENDAR");
+    return lines.join("
+");
+  }
+
+  function downloadICS() {
+    const wie  = $("export-wie").value;
+    const naam = wie === "naam1" ? roosterConfig.naam1 : roosterConfig.naam2;
+    const ics  = generateICS(wie);
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `Training_${naam}_${roosterConfig.jaar}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("📥 .ics gedownload", "ok");
+  }
+
+  function kopieerTekst() {
+    const txt = $("export-tekst").value;
+    navigator.clipboard.writeText(txt).then(() => showToast("📋 Gekopieerd", "ok"));
+  }
+
+  // ── Helpers ────────────────────────────────────────────
+  function eersteZondagVanJaar(jaar) {
+    const d = new Date(jaar, 0, 1);
+    while (d.getDay() !== 0) d.setDate(d.getDate() + 1);
+    return toISO(d);
+  }
+
 </script>
 
 <style>
@@ -1126,6 +1507,128 @@
   .type-row select { flex: 1; }
   #type-icon-preview { font-size: 1.4rem; }
 
+
+  /* ══════════════════════════════════════════════════════
+     ROOSTER STYLES
+  ══════════════════════════════════════════════════════ */
+  .grid-rooster { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+
+  .rooster-welcome {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    flex: 1; padding: 48px 24px; text-align: center; gap: 12px;
+  }
+  .rooster-welcome-icon { font-size: 3.5rem; }
+  .rooster-welcome h2   { font-size: 1.4rem; font-weight: 600; }
+  .rooster-welcome p    { color: var(--muted); line-height: 1.6; max-width: 360px; }
+
+  .rooster-header {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    padding: 12px 20px; background: var(--surface);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .rooster-hdr-left { display: flex; flex-direction: column; gap: 2px; }
+  .rooster-title    { font-size: 1rem; font-weight: 700; }
+  .rooster-sub      { font-size: .80rem; color: var(--muted); }
+  .rooster-hdr-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-sm { padding: 5px 10px !important; font-size: .80rem !important; }
+  .btn-danger-sm { color: #d93025 !important; border-color: #f5c6c2 !important; }
+
+  .rooster-legend {
+    display: flex; gap: 16px; padding: 8px 20px;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap; flex-shrink: 0;
+  }
+  .rleg-item { display: flex; align-items: center; gap: 6px; font-size: .82rem; color: var(--muted); }
+  .rleg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .rleg-swap { background: repeating-linear-gradient(45deg,#aaa,#aaa 2px,#fff 2px,#fff 5px); border: 1px solid #aaa; }
+
+  .rooster-list { padding: 8px 16px 80px; display: flex; flex-direction: column; gap: 3px; }
+
+  .rooster-month-hdr {
+    font-size: .78rem; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .06em;
+    padding: 12px 4px 4px;
+  }
+
+  .rooster-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    transition: box-shadow .15s;
+  }
+  .rooster-row:hover { box-shadow: var(--shadow); }
+  .rooster-past { opacity: .45; }
+  .rooster-swapped { border-style: dashed; }
+
+  .rooster-datum {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 38px; flex-shrink: 0;
+  }
+  .rooster-dag { font-size: .68rem; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .rooster-dd  { font-size: 1.1rem; font-weight: 700; line-height: 1.1; }
+  .rooster-mnd { font-size: .68rem; color: var(--muted); }
+
+  .rooster-wie {
+    flex: 1; padding: 4px 10px; border-radius: 6px; min-width: 0;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .rooster-naam      { font-size: .88rem; font-weight: 600; }
+  .rooster-swap-badge {
+    font-size: .72rem; background: #fff3e0; color: #e65100;
+    border: 1px solid #ffe0b2; border-radius: 10px; padding: 1px 6px;
+  }
+  .rooster-notitie { font-size: .78rem; color: var(--muted); font-style: italic; }
+
+  .rooster-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .rooster-btn-swap, .rooster-btn-note {
+    border: 1px solid var(--border); background: var(--bg);
+    border-radius: 6px; padding: 4px 8px; cursor: pointer;
+    font-size: .82rem; transition: background .1s;
+  }
+  .rooster-btn-swap:hover { background: #fff3e0; border-color: #ffb74d; }
+  .rooster-btn-note:hover { background: #e8f0fe; border-color: #90b4f5; }
+
+  /* ── Rooster wizard overlay ────────────────── */
+  #rooster-wizard-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #rooster-wizard {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 420px; padding: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
+  }
+  .rw-title { font-size: 1.1rem; font-weight: 700; }
+  .rw-patroon-row { display: flex; align-items: center; gap: 8px; }
+  .rw-patroon-row input { width: 60px; text-align: center; }
+  .rw-patroon-sep { font-size: 1rem; color: var(--muted); font-weight: 600; }
+
+  /* ── Export overlay ─────────────────────────── */
+  #export-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #export-modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 460px; padding: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
+  }
+  .export-title { font-size: 1.1rem; font-weight: 700; }
+  .export-sub   { font-size: .88rem; color: var(--muted); }
+  #export-tekst {
+    width: 100%; min-height: 160px; font-size: .80rem;
+    font-family: monospace; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; resize: vertical;
+    color: var(--text); background: var(--bg);
+  }
+  .export-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
   /* ── Toast ──────────────────────────────────── */
   .toast {
     position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -1172,6 +1675,7 @@
       <button class="view-btn" data-view="week">Week</button>
       <button class="view-btn" data-view="day">Dag</button>
       <button class="view-btn" data-view="list">Lijst</button>
+      <button class="view-btn" data-view="rooster">🏃 Rooster</button>
     </div>
   </div>
 
@@ -1224,6 +1728,7 @@
           <option value="vakantie">🏖️ Vakantie</option>
           <option value="bijzonder">⭐ Bijzondere dag</option>
           <option value="sterfdag">🕯️ Sterfdag</option>
+          <option value="training">🏃 Training</option>
         </select>
         <span id="type-icon-preview">📅</span>
       </div>
@@ -1288,6 +1793,76 @@
       <button id="btn-modal-delete" class="btn-danger">🗑 Verwijderen</button>
       <button id="btn-modal-cancel" class="btn-ghost">Annuleren</button>
       <button id="btn-modal-save" class="btn-primary">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Rooster Wizard -->
+<div id="rooster-wizard-overlay">
+  <div id="rooster-wizard">
+    <div class="rw-title">🏃 Trainingsrooster instellen</div>
+
+    <div class="form-row">
+      <label>Jaar</label>
+      <input id="rw-jaar" type="number" min="2024" max="2035" value="2025">
+    </div>
+
+    <div class="form-row">
+      <label>Jouw naam</label>
+      <input id="rw-naam1" type="text" placeholder="Bijv. Dave">
+    </div>
+
+    <div class="form-row">
+      <label>Naam trainingspartner</label>
+      <input id="rw-naam2" type="text" placeholder="Bijv. Jan">
+    </div>
+
+    <div class="form-row">
+      <label>Basispatroon (weken aan / weken af)</label>
+      <div class="rw-patroon-row">
+        <input id="rw-patroon1" type="number" min="1" max="8" value="2">
+        <span class="rw-patroon-sep">weken jij, dan</span>
+        <input id="rw-patroon2" type="number" min="1" max="8" value="2">
+        <span class="rw-patroon-sep">weken partner</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Eerste trainingszondag</label>
+      <input id="rw-startdate" type="date">
+    </div>
+
+    <div class="modal-actions">
+      <button id="btn-rw-cancel" class="btn-ghost">Annuleren</button>
+      <button id="btn-rw-save" class="btn-primary">Rooster genereren</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export Modal -->
+<div id="export-overlay">
+  <div id="export-modal">
+    <div class="export-title">📤 Rooster exporteren</div>
+    <div class="export-sub">Exporteer voor: <strong id="export-preview-naam"></strong> (<span id="export-count"></span> zondagen)</div>
+
+    <div class="form-row">
+      <label>Exporteer voor</label>
+      <select id="export-wie">
+        <option value="naam1" id="export-lbl-naam1">Ik</option>
+        <option value="naam2" id="export-lbl-naam2">Partner</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Datumlijst (kopiëren)</label>
+      <textarea id="export-tekst" readonly></textarea>
+    </div>
+
+    <div class="export-actions">
+      <button id="btn-export-close" class="btn-ghost">Sluiten</button>
+      <button id="btn-export-copy" class="btn-ghost">📋 Kopiëren</button>
+      <button id="btn-export-ics" class="btn-primary">📥 Download .ics</button>
     </div>
   </div>
 </div>
