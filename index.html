@@ -98,7 +98,7 @@
     });
     $("btn-logout").addEventListener("click", () => signOut(auth));
 
-    onAuthStateChanged(auth, user => {
+    onAuthStateChanged(auth, async user => {
       currentUser = user;
       if (user) {
         $("login-screen").style.display = "none";
