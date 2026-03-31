@@ -128,6 +128,35 @@
       }
     });
 
+    // ── Swipe navigatie op kalendergebied ────────────
+    let touchStartX = 0;
+    let touchStartY = 0;
+    const calArea = $("cal-area");
+    calArea.addEventListener("touchstart", e => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    calArea.addEventListener("touchend", e => {
+      // Geen swipe als een modal open is
+      if ($("modal-overlay").style.display === "flex") return;
+      if ($("week-menu-overlay").style.display === "flex") return;
+      // Negeer swipes in rooster-weergave (scrollen)
+      if (currentView === "rooster") return;
+
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+
+      // Alleen horizontale swipes (meer horizontaal dan verticaal)
+      if (Math.abs(dx) < 40) return;           // te kort
+      if (Math.abs(dy) > Math.abs(dx)) return; // eerder verticaal (scrollen)
+
+      if (dx < 0) {
+        navigate(+1); // swipe links → volgende
+      } else {
+        navigate(-1); // swipe rechts → vorige
+      }
+    }, { passive: true });
+
     $("btn-prev").addEventListener("click",  () => navigate(-1));
     $("btn-next").addEventListener("click",  () => navigate(+1));
     $("btn-today").addEventListener("click", () => { viewDate = new Date(); renderAll(); });
@@ -205,6 +234,15 @@
     $("btn-export-copy").addEventListener("click",     kopieerTekst);
     $("export-wie").addEventListener("change", e => renderExportPreview(e.target.value));
 
+    // Startdatum → vul einddatum in als die leeg is of gelijk/eerder
+    $("ev-start-date").addEventListener("change", () => {
+      const start = $("ev-start-date").value;
+      const eind  = $("ev-end-date").value;
+      if (!eind || eind < start) {
+        $("ev-end-date").value = start;
+      }
+    });
+
     // all-day toggle
     $("ev-allday").addEventListener("change", () => {
       $("time-fields").style.display = $("ev-allday").checked ? "none" : "flex";
@@ -234,6 +272,25 @@
       }
     });
     tokenClient.requestAccessToken();
+  }
+
+  // Detecteer event-type op basis van sleutelwoorden in titel
+  function detecteerType(titel) {
+    const t = titel.toLowerCase();
+    if (t.includes("verjaardag") || t.includes("birthday") || t.includes("jarig"))
+      return "verjaardag";
+    if (t.includes("sterfdag") || t.includes("overlijden") || t.includes("herdenking")
+        || t.includes("anniversary of death"))
+      return "sterfdag";
+    if (t.includes("vakantie") || t.includes("holiday") || t.includes("verlof")
+        || t.includes("vrij ") || t.includes("vrije dag"))
+      return "vakantie";
+    if (t.includes("training") || t.includes("sport") || t.includes("gym")
+        || t.includes("hardlopen") || t.includes("fietsen"))
+      return "training";
+    if (t.includes("bijzonder") || t.includes("feestdag") || t.includes("jubileum"))
+      return "bijzonder";
+    return "afspraak";
   }
 
   // Stap 1: haal lijst van agenda's op en toon keuze-dialog
@@ -346,7 +403,7 @@
 
             await addDoc(collection(db, "events"), {
               title:        ev.summary || "(geen titel)",
-              type:         "afspraak",
+              type:         detecteerType(ev.summary || ""),
               allDay:       !!ev.start?.date,
               startDate,
               endDate,
@@ -1562,7 +1619,11 @@
   #gcal-status { font-size: .75rem; color: var(--muted); padding: 4px 8px; }
 
   /* ── Calendar area ──────────────────────────── */
-  #cal-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #cal-area {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    touch-action: pan-y;   /* sta verticaal scrollen toe, blokkeer horizontaal niet */
+    user-select: none;     /* voorkom tekst-selectie bij swipen */
+  }
   #calendar-grid { flex: 1; overflow-y: auto; }
 
   /* ── FAB ────────────────────────────────────── */
