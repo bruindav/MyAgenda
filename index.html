@@ -177,8 +177,15 @@
     });
     $("btn-rw-cancel").addEventListener("click", closeRoosterWizard);
     $("btn-rw-save").addEventListener("click",   saveRooster);
-    $("rw-jaar").addEventListener("change", () => {
-      $("rw-startdate").value = eersteZondagVanJaar(parseInt($("rw-jaar").value));
+    // Week-menu
+    $("week-menu-overlay").addEventListener("click", e => {
+      if (e.target === $("week-menu-overlay")) closeWeekMenu();
+    });
+    $("btn-wmenu-cancel").addEventListener("click", closeWeekMenu);
+    $("btn-wmenu-save").addEventListener("click",   saveWeekMenu);
+    $("btn-wmenu-swap").addEventListener("click",   doSwapFromMenu);
+    $("wmenu-geen-check").addEventListener("change", () => {
+      $("wmenu-geen-reden").style.display = $("wmenu-geen-check").checked ? "flex" : "none";
     });
 
     // Export modal
@@ -850,7 +857,7 @@
     hdr.innerHTML = `
       <div class="rooster-hdr-left">
         <span class="rooster-title">🏃 Trainingsrooster ${roosterConfig.jaar || ""}</span>
-        <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${roosterConfig.patroon[0]}/${roosterConfig.patroon[1]}</span>
+        <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${roosterConfig.patroon[0]}/${roosterConfig.patroon[1]} · ${roosterConfig.startDate||""} t/m ${roosterConfig.endDate||""}</span>
       </div>
       <div class="rooster-hdr-actions">
         <button class="btn-ghost btn-sm" id="btn-rooster-edit">✏️ Bewerken</button>
@@ -891,21 +898,41 @@
       const kleur   = isJij ? "#00897b" : "#5c6bc0";
       const isPast  = d < today;
 
-      const row = el("div", `rooster-row${isPast ? " rooster-past" : ""}${week.swap ? " rooster-swapped" : ""}`);
+      // Bepaal statuskleur en badges
+      let statusKleur = kleur;
+      let statusLabel = naam;
+      let statusBadge = "";
+      if (week.geen) {
+        statusKleur = "#9e9e9e";
+        statusLabel = "Geen training";
+        statusBadge = `<span class="rooster-badge rooster-badge-geen">🚫 ${week.geen}</span>`;
+      } else if (week.invaller) {
+        statusBadge = `<span class="rooster-badge rooster-badge-inv">🔄 Invaller: ${week.invaller}</span>`;
+      } else if (week.swap) {
+        statusBadge = '<span class="rooster-badge rooster-badge-swap">↔ geruild</span>';
+      }
+
+      const rowClass = [
+        "rooster-row",
+        isPast        ? "rooster-past"    : "",
+        week.swap     ? "rooster-swapped" : "",
+        week.geen     ? "rooster-geen"    : "",
+        week.invaller ? "rooster-invaller": "",
+      ].filter(Boolean).join(" ");
+
+      const row = el("div", rowClass);
       row.innerHTML = `
         <div class="rooster-datum">
           <span class="rooster-dag">${WEEKDAYS_SHORT[d.getDay()]}</span>
           <span class="rooster-dd">${String(d.getDate()).padStart(2,"0")}</span>
           <span class="rooster-mnd">${MONTHS[d.getMonth()].slice(0,3)}</span>
         </div>
-        <div class="rooster-wie" style="background:${kleur}20;border-left:3px solid ${kleur}">
-          <span class="rooster-naam" style="color:${kleur}">${naam}</span>
-          ${week.swap ? '<span class="rooster-swap-badge">↔ geruild</span>' : ""}
-          ${week.notitie ? `<span class="rooster-notitie">${week.notitie}</span>` : ""}
+        <div class="rooster-wie" style="background:${statusKleur}18;border-left:3px solid ${statusKleur}">
+          <span class="rooster-naam" style="color:${statusKleur}">${statusLabel}</span>
+          ${statusBadge}
         </div>
         <div class="rooster-actions">
-          <button class="rooster-btn-swap" title="Ruil deze week" data-idx="${idx}">↔</button>
-          <button class="rooster-btn-note" title="Notitie" data-idx="${idx}">✏️</button>
+          <button class="rooster-btn-menu" title="Opties" data-idx="${idx}">⋯</button>
         </div>
       `;
       list.appendChild(row);
@@ -913,12 +940,9 @@
 
     grid.appendChild(list);
 
-    // Event listeners voor swap/notitie knoppen
-    grid.querySelectorAll(".rooster-btn-swap").forEach(btn =>
-      btn.addEventListener("click", () => swapWeek(parseInt(btn.dataset.idx)))
-    );
-    grid.querySelectorAll(".rooster-btn-note").forEach(btn =>
-      btn.addEventListener("click", () => addNoteToWeek(parseInt(btn.dataset.idx)))
+    // Opties-knop → contextmenu
+    grid.querySelectorAll(".rooster-btn-menu").forEach(btn =>
+      btn.addEventListener("click", (e) => openWeekMenu(e, parseInt(btn.dataset.idx)))
     );
   }
 
@@ -935,12 +959,14 @@
 
     const ov = $("rooster-wizard-overlay");
     ov.style.display = "flex";
-    $("rw-jaar").value       = jaar;
     $("rw-naam1").value      = naam1;
     $("rw-naam2").value      = naam2;
     $("rw-patroon1").value   = pat1;
     $("rw-patroon2").value   = pat2;
-    $("rw-startdate").value  = eersteZondag;
+    $("rw-startdate").value  = cfg?.startDate || eersteZondagVanJaar(jaar);
+    // Einddatum: standaard laatste zondag van het jaar
+    const defaultEnd = cfg?.endDate || laatsteZondagVanJaar(jaar);
+    $("rw-enddate").value = defaultEnd;
   }
 
   function closeRoosterWizard() {
@@ -948,23 +974,24 @@
   }
 
   async function saveRooster() {
-    const jaar     = parseInt($("rw-jaar").value);
     const naam1    = $("rw-naam1").value.trim() || "Ik";
     const naam2    = $("rw-naam2").value.trim() || "Vriend";
     const pat1     = parseInt($("rw-patroon1").value) || 2;
     const pat2     = parseInt($("rw-patroon2").value) || 2;
     const startStr = $("rw-startdate").value;
+    const endStr   = $("rw-enddate").value;
 
     if (!startStr) { alert("Vul een startdatum in."); return; }
+    if (!endStr || endStr <= startStr) { alert("Vul een geldige einddatum in (na de startdatum)."); return; }
 
-    // Genereer alle zondagen in het jaar met basispatroon
-    const weken = genereerWeken(startStr, jaar, pat1, pat2,
+    const weken = genereerWeken(startStr, endStr, pat1, pat2,
                                 roosterConfig?.weken || []);
 
     const config = {
-      jaar, naam1, naam2,
+      naam1, naam2,
       patroon:   [pat1, pat2],
       startDate: startStr,
+      endDate:   endStr,
       weken,
       updatedAt: Timestamp.now()
     };
@@ -977,30 +1004,31 @@
     await syncRoosterToEvents(config);
   }
 
-  function genereerWeken(startStr, jaar, pat1, pat2, bestaandeWeken) {
-    const start = new Date(startStr + "T00:00:00");
-    const weken = [];
-    let patIdx  = 0;    // welke blok zijn we
-    let teller  = 0;    // hoe ver in huidig blok
+  function genereerWeken(startStr, endStr, pat1, pat2, bestaandeWeken) {
+    const start  = new Date(startStr + "T00:00:00");
+    const eindDt = new Date(endStr   + "T00:00:00");
+    const weken  = [];
+    let patIdx   = 0;
+    let teller   = 0;
 
-    // Bewaar bestaande swaps/notities op datum
     const bestaandeMap = {};
     bestaandeWeken.forEach(w => { bestaandeMap[w.datum] = w; });
 
     let d = new Date(start);
-    while (d.getFullYear() <= jaar) {
+    while (d <= eindDt) {
       const isoStr  = toISO(d);
-      const inBlok1 = (patIdx % 2 === 0);  // even blok = naam1, oneven = naam2
+      const inBlok1 = (patIdx % 2 === 0);
       const wie     = inBlok1 ? "naam1" : "naam2";
       const patLen  = inBlok1 ? pat1 : pat2;
 
       const bestaande = bestaandeMap[isoStr];
       weken.push({
-        datum:   isoStr,
-        wie:     bestaande?.swap ? (wie === "naam1" ? "naam2" : "naam1") : wie,
-        swap:    bestaande?.swap    || false,
-        notitie: bestaande?.notitie || "",
-        origineel: wie   // bewaar origineel patroon
+        datum:     isoStr,
+        wie:       bestaande?.swap ? (wie === "naam1" ? "naam2" : "naam1") : wie,
+        swap:      bestaande?.swap     || false,
+        invaller:  bestaande?.invaller || "",
+        geen:      bestaande?.geen     || "",
+        origineel: wie
       });
 
       teller++;
@@ -1008,6 +1036,12 @@
       d.setDate(d.getDate() + 7);
     }
     return weken;
+  }
+
+  function laatsteZondagVanJaar(jaar) {
+    const d = new Date(jaar, 11, 31);
+    while (d.getDay() !== 0) d.setDate(d.getDate() - 1);
+    return toISO(d);
   }
 
   async function syncRoosterToEvents(config) {
@@ -1052,14 +1086,75 @@
     showToast("↔ Week geruild", "ok");
   }
 
-  async function addNoteToWeek(idx) {
-    const huidig = roosterConfig.weken[idx].notitie || "";
-    const nieuw  = prompt("Notitie voor deze week:", huidig);
-    if (nieuw === null) return;
-    const weken = [...roosterConfig.weken];
-    weken[idx] = { ...weken[idx], notitie: nieuw };
+  // ── Week acties contextmenu ──────────────────────────
+  let weekMenuIdx = -1;
+
+  function openWeekMenu(e, idx) {
+    weekMenuIdx = idx;
+    const week  = roosterConfig.weken[idx];
+    const cfg   = roosterConfig;
+    const naam1 = cfg.naam1;
+    const naam2 = cfg.naam2;
+
+    // Vul contextmenu
+    $("wmenu-datum").textContent = (() => {
+      const d = new Date(week.datum + "T00:00:00");
+      return `${WEEKDAYS_LONG[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+    })();
+
+    // Ruilknop label aanpassen
+    const isNaam1  = week.wie === "naam1";
+    $("wmenu-swap-label").textContent = isNaam1
+      ? `↔ Ruil naar ${naam2}` : `↔ Ruil naar ${naam1}`;
+
+    // Invaller input
+    $("wmenu-invaller").value = week.invaller || "";
+    $("wmenu-invaller").placeholder = `Naam invaller (bijv. ${isNaam1 ? naam2 : naam1})`;
+
+    // Geen training
+    $("wmenu-geen").value   = week.geen || "";
+    $("wmenu-geen-check").checked = !!week.geen;
+    $("wmenu-geen-reden").style.display = week.geen ? "flex" : "none";
+
+    $("week-menu-overlay").style.display = "flex";
+    e.stopPropagation();
+  }
+
+  function closeWeekMenu() {
+    $("week-menu-overlay").style.display = "none";
+  }
+
+  async function saveWeekMenu() {
+    const idx    = weekMenuIdx;
+    const weken  = [...roosterConfig.weken];
+    const w      = { ...weken[idx] };
+
+    // Invaller
+    w.invaller = $("wmenu-invaller").value.trim();
+
+    // Geen training
+    w.geen = $("wmenu-geen-check").checked
+      ? ($("wmenu-geen").value.trim() || "geen reden")
+      : "";
+
+    weken[idx] = w;
     await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
-    showToast("📝 Notitie opgeslagen", "ok");
+    await syncRoosterToEvents({ ...roosterConfig, weken });
+    closeWeekMenu();
+    showToast("✅ Week bijgewerkt", "ok");
+  }
+
+  async function doSwapFromMenu() {
+    const idx   = weekMenuIdx;
+    const weken = [...roosterConfig.weken];
+    const w     = { ...weken[idx] };
+    w.wie  = w.wie === "naam1" ? "naam2" : "naam1";
+    w.swap = !w.swap;
+    weken[idx] = w;
+    await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
+    await syncRoosterToEvents({ ...roosterConfig, weken });
+    closeWeekMenu();
+    showToast("↔ Week geruild", "ok");
   }
 
   async function deleteRooster() {
@@ -1611,13 +1706,24 @@
   .rooster-notitie { font-size: .78rem; color: var(--muted); font-style: italic; }
 
   .rooster-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  .rooster-btn-swap, .rooster-btn-note {
-    border: 1px solid var(--border); background: var(--bg);
-    border-radius: 6px; padding: 4px 8px; cursor: pointer;
-    font-size: .82rem; transition: background .1s;
+  .rooster-btn-menu {
+    border: 1px solid var(--border); background: var(--surface);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    font-size: 1.1rem; font-weight: 700; transition: background .1s, box-shadow .1s;
+    color: var(--text); line-height: 1; min-width: 36px;
   }
-  .rooster-btn-swap:hover { background: #fff3e0; border-color: #ffb74d; }
-  .rooster-btn-note:hover { background: #e8f0fe; border-color: #90b4f5; }
+  .rooster-btn-menu:hover { background: var(--bg); box-shadow: var(--shadow); }
+
+  .rooster-badge {
+    font-size: .72rem; border-radius: 10px; padding: 2px 8px;
+    white-space: nowrap;
+  }
+  .rooster-badge-swap { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
+  .rooster-badge-inv  { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+  .rooster-badge-geen { background: #fafafa; color: #757575; border: 1px solid #e0e0e0; }
+
+  .rooster-geen     { opacity: .6; }
+  .rooster-invaller { border-color: #a5d6a7; background: #f1f8f1; }
 
   /* ── Rooster wizard overlay ────────────────── */
   #rooster-wizard-overlay {
@@ -1636,6 +1742,37 @@
   .rw-patroon-row { display: flex; align-items: center; gap: 8px; }
   .rw-patroon-row input { width: 60px; text-align: center; }
   .rw-patroon-sep { font-size: 1rem; color: var(--muted); font-weight: 600; }
+
+  /* ── Week-menu overlay ──────────────────────── */
+  #week-menu-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #week-menu {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 380px; padding: 20px;
+    display: flex; flex-direction: column; gap: 14px;
+    animation: popIn .18s ease;
+  }
+  #wmenu-datum { font-size: 1rem; font-weight: 700; color: var(--primary); }
+  .wmenu-section {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 10px; border-radius: 8px; background: var(--bg);
+  }
+  .wmenu-section-title {
+    font-size: .78rem; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  .wmenu-check-row { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+  #wmenu-geen-reden { display: none; flex-direction: column; gap: 4px; }
+  #btn-wmenu-swap {
+    background: #fff8e1; border: 1px solid #ffe082; color: #e65100;
+    padding: 8px 14px; border-radius: 8px; font-size: .88rem; cursor: pointer;
+    transition: background .15s; text-align: left;
+  }
+  #btn-wmenu-swap:hover { background: #fff3e0; }
 
   /* ── Export overlay ─────────────────────────── */
   #export-overlay {
@@ -1831,15 +1968,42 @@
 </div>
 
 
+<!-- Week-menu -->
+<div id="week-menu-overlay">
+  <div id="week-menu">
+    <div id="wmenu-datum">Datum</div>
+
+    <button id="btn-wmenu-swap"><span id="wmenu-swap-label">↔ Ruil week</span></button>
+
+    <div class="wmenu-section">
+      <div class="wmenu-section-title">🔄 Invaller</div>
+      <input id="wmenu-invaller" type="text" placeholder="Naam invaller"
+        style="border:1px solid var(--border);border-radius:8px;padding:8px;font-size:.9rem;font-family:var(--font)">
+    </div>
+
+    <div class="wmenu-section">
+      <div class="wmenu-section-title">🚫 Geen training</div>
+      <div class="wmenu-check-row">
+        <input id="wmenu-geen-check" type="checkbox">
+        <label for="wmenu-geen-check">Geen training deze week</label>
+      </div>
+      <div id="wmenu-geen-reden">
+        <input id="wmenu-geen" type="text" placeholder="Reden (bijv. vakantie, ziek...)"
+          style="border:1px solid var(--border);border-radius:8px;padding:8px;font-size:.9rem;font-family:var(--font)">
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button id="btn-wmenu-cancel" class="btn-ghost">Annuleren</button>
+      <button id="btn-wmenu-save" class="btn-primary">Opslaan</button>
+    </div>
+  </div>
+</div>
+
 <!-- Rooster Wizard -->
 <div id="rooster-wizard-overlay">
   <div id="rooster-wizard">
     <div class="rw-title">🏃 Trainingsrooster instellen</div>
-
-    <div class="form-row">
-      <label>Jaar</label>
-      <input id="rw-jaar" type="number" min="2024" max="2035" value="2025">
-    </div>
 
     <div class="form-row">
       <label>Jouw naam</label>
@@ -1861,9 +2025,15 @@
       </div>
     </div>
 
-    <div class="form-row">
-      <label>Eerste trainingszondag</label>
-      <input id="rw-startdate" type="date">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div class="form-row" style="flex:1;min-width:130px">
+        <label>Eerste trainingszondag</label>
+        <input id="rw-startdate" type="date">
+      </div>
+      <div class="form-row" style="flex:1;min-width:130px">
+        <label>Laatste trainingszondag</label>
+        <input id="rw-enddate" type="date">
+      </div>
     </div>
 
     <div class="modal-actions">
