@@ -48,7 +48,7 @@
   // Stap 5: Kopieer de Client ID hieronder
   // ─────────────────────────────────────────────────────────────────
   const GCAL_CLIENT_ID = "725684817436-7addcplas6eqfgs88brcajkobra4of4i.apps.googleusercontent.com";
-  const GCAL_SCOPE     = "https://www.googleapis.com/auth/calendar.readonly";
+  const GCAL_SCOPE     = "https://www.googleapis.com/auth/calendar.readonly";  // readonly is genoeg voor import
 
   // ── Event type definitie ────────────────────
   const EVENT_TYPES = {
@@ -105,6 +105,7 @@
         $("app-shell").style.display    = "flex";
         $("user-avatar").src            = user.photoURL || "";
         $("user-name").textContent      = user.displayName || user.email;
+        await koppelGedeeldeAgendas(user);
         subscribeData();
         renderAll();
       } else {
@@ -171,6 +172,13 @@
     // Google Calendar sync knop
     $("btn-gcal-sync").addEventListener("click", startGcalSync);
 
+    // Google import keuze-dialog
+    $("gcal-keuze-overlay").addEventListener("click", e => {
+      if (e.target === $("gcal-keuze-overlay")) closeGcalKeuzeDialog();
+    });
+    $("btn-gcal-annuleer").addEventListener("click", closeGcalKeuzeDialog);
+    $("btn-gcal-import").addEventListener("click",   importGcalNaarFirestore);
+
     // Rooster wizard
     $("rooster-wizard-overlay").addEventListener("click", e => {
       if (e.target === $("rooster-wizard-overlay")) closeRoosterWizard();
@@ -228,54 +236,143 @@
     tokenClient.requestAccessToken();
   }
 
+  // Stap 1: haal lijst van agenda's op en toon keuze-dialog
   async function fetchGcalEvents() {
     if (!gcalToken) return;
-    showToast("📥 Google Agenda wordt geladen…", "info");
-
+    showToast("📥 Google agenda-lijst ophalen…", "info");
     try {
-      // Haal lijst van agenda's op
-      const calsRes = await fetch(
+      const calsRes  = await fetch(
         "https://www.googleapis.com/calendar/v3/users/me/calendarList",
         { headers: { Authorization: `Bearer ${gcalToken}` } }
       );
       const calsData = await calsRes.json();
-      const calIds   = (calsData.items || []).map(c => c.id);
-
-      // Tijdvenster: 1 jaar terug t/m 1 jaar vooruit
-      const timeMin = new Date(); timeMin.setFullYear(timeMin.getFullYear() - 1);
-      const timeMax = new Date(); timeMax.setFullYear(timeMax.getFullYear() + 1);
-
-      let allGcal = [];
-      for (const calId of calIds) {
-        const evRes = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events` +
-          `?maxResults=500&singleEvents=true&orderBy=startTime` +
-          `&timeMin=${timeMin.toISOString()}&timeMax=${timeMax.toISOString()}`,
-          { headers: { Authorization: `Bearer ${gcalToken}` } }
-        );
-        const evData = await evRes.json();
-        const mapped = (evData.items || []).map(ev => ({
-          id:        "gcal_" + ev.id,
-          title:     ev.summary || "(geen titel)",
-          startDate: (ev.start?.date || ev.start?.dateTime || "").slice(0, 10),
-          endDate:   (ev.end?.date   || ev.end?.dateTime   || "").slice(0, 10),
-          startTime: ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : null,
-          endTime:   ev.end?.dateTime   ? ev.end.dateTime.slice(11, 16)   : null,
-          allDay:    !!ev.start?.date,
-          type:      "gcal",
-          gcal:      true,
-          description: ev.description || "",
-        }));
-        allGcal = allGcal.concat(mapped);
-      }
-      gcalEvents = allGcal;
-      $("gcal-status").textContent = `✅ ${gcalEvents.length} Google events geladen`;
-      renderAll();
-      showToast(`✅ ${gcalEvents.length} Google Agenda events geladen`, "ok");
+      gcalCalendarList = (calsData.items || []).map(c => ({
+        id:    c.id,
+        name:  c.summary,
+        color: c.backgroundColor || "#4285f4",
+      }));
+      openGcalKeuzeDialog();
     } catch (err) {
       console.error(err);
-      showToast("❌ Fout bij laden Google Agenda", "error");
+      showToast("❌ Fout bij ophalen agenda-lijst", "error");
     }
+  }
+
+  // Stap 2: toon keuze-dialog
+  let gcalCalendarList = [];
+
+  function openGcalKeuzeDialog() {
+    const list = $("gcal-cal-list");
+    list.innerHTML = "";
+    gcalCalendarList.forEach((cal, i) => {
+      const row = el("div", "gcal-cal-row");
+      row.innerHTML = `
+        <input type="checkbox" id="gcal-cb-${i}" checked>
+        <span class="gcal-cal-dot" style="background:${cal.color}"></span>
+        <label for="gcal-cb-${i}" style="cursor:pointer;flex:1">${cal.name}</label>
+      `;
+      list.appendChild(row);
+    });
+    $("gcal-keuze-overlay").style.display = "flex";
+  }
+
+  function closeGcalKeuzeDialog() {
+    $("gcal-keuze-overlay").style.display = "none";
+  }
+
+  // Stap 3: importeer geselecteerde agenda's naar Firestore
+  async function importGcalNaarFirestore() {
+    const geselecteerd = gcalCalendarList.filter((_, i) =>
+      $(`gcal-cb-${i}`)?.checked
+    );
+    if (geselecteerd.length === 0) { showToast("⚠️ Selecteer minimaal één agenda", "warn"); return; }
+
+    closeGcalKeuzeDialog();
+    showToast("⏳ Bezig met importeren…", "info");
+
+    // Tijdvenster: 1 jaar terug t/m 2 jaar vooruit
+    const timeMin = new Date(); timeMin.setFullYear(timeMin.getFullYear() - 1);
+    const timeMax = new Date(); timeMax.setFullYear(timeMax.getFullYear() + 2);
+
+    // Zorg dat de eerste eigen kalender bestaat
+    let targetCalId = calendars[0]?.id;
+    if (!targetCalId) {
+      await createCalendar("Persoonlijk");
+      targetCalId = calendars[0]?.id;
+    }
+
+    let totaalImport = 0;
+    let totaalGeslagen = 0;
+
+    for (const gcal of geselecteerd) {
+      // Zoek of we al een lokale agenda hebben met deze gcal-naam, anders maak nieuw
+      let localCal = calendars.find(c => c.gcalId === gcal.id);
+      if (!localCal) {
+        // Maak nieuwe lokale agenda aan met zelfde naam en kleur
+        const ref = await addDoc(collection(db, "calendars"), {
+          name:      gcal.name,
+          color:     gcal.color,
+          gcalId:    gcal.id,
+          members:   [currentUser.uid],
+          owner:     currentUser.uid,
+          createdAt: Timestamp.now()
+        });
+        localCal = { id: ref.id, name: gcal.name, color: gcal.color };
+      }
+
+      try {
+        let pageToken = null;
+        do {
+          const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(gcal.id)}/events`
+            + `?maxResults=500&singleEvents=true&orderBy=startTime`
+            + `&timeMin=${timeMin.toISOString()}&timeMax=${timeMax.toISOString()}`
+            + (pageToken ? `&pageToken=${pageToken}` : "");
+          const res  = await fetch(url, { headers: { Authorization: `Bearer ${gcalToken}` } });
+          const data = await res.json();
+
+          for (const ev of (data.items || [])) {
+            if (ev.status === "cancelled") continue;
+            const startDate = (ev.start?.date || ev.start?.dateTime || "").slice(0, 10);
+            const endDate   = (ev.end?.date   || ev.end?.dateTime   || "").slice(0, 10);
+            if (!startDate) { totaalGeslagen++; continue; }
+
+            // Controleer duplicaat op gcalId
+            const dupQ = query(collection(db, "events"),
+              where("members", "array-contains", currentUser.uid),
+              where("gcalImportId", "==", ev.id)
+            );
+            const dupSnap = await getDocs(dupQ);
+            if (!dupSnap.empty) { totaalGeslagen++; continue; }
+
+            await addDoc(collection(db, "events"), {
+              title:        ev.summary || "(geen titel)",
+              type:         "afspraak",
+              allDay:       !!ev.start?.date,
+              startDate,
+              endDate,
+              startTime:    ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
+              endTime:      ev.end?.dateTime   ? ev.end.dateTime.slice(11, 16)   : "",
+              description:  ev.description || "",
+              location:     ev.location || "",
+              calendarId:   localCal.id,
+              gcalImportId: ev.id,
+              members:      [currentUser.uid],
+              createdAt:    Timestamp.now()
+            });
+            totaalImport++;
+          }
+          pageToken = data.nextPageToken || null;
+        } while (pageToken);
+
+      } catch (err) {
+        console.error("Fout bij agenda", gcal.name, err);
+      }
+    }
+
+    gcalEvents = []; // wis tijdelijke gcal-overlay
+    $("gcal-status").textContent = `✅ ${totaalImport} events geïmporteerd`;
+    renderAll();
+    showToast(`✅ ${totaalImport} events geïmporteerd (${totaalGeslagen} overgeslagen)`, "ok");
   }
 
   // ── Toast ────────────────────────────────────
@@ -309,13 +406,65 @@
     });
   }
 
+  // Controleer of dit account uitgenodigd is voor agenda's van anderen
+  async function koppelGedeeldeAgendas(user) {
+    const email = user.email?.toLowerCase();
+    if (!email) return;
+    // Zoek agenda's waar dit e-mailadres als invite staat maar uid nog niet in members
+    const invQ = query(
+      collection(db, "calendars"),
+      where("invites", "array-contains", email)
+    );
+    const invSnap = await getDocs(invQ);
+    for (const calDoc of invSnap.docs) {
+      const data = calDoc.data();
+      if (!data.members.includes(user.uid)) {
+        // Voeg uid toe aan members
+        await updateDoc(doc(db, "calendars", calDoc.id), {
+          members: [...data.members, user.uid]
+        });
+        // Voeg ook uid toe aan alle events van deze agenda
+        const evQ = query(collection(db, "events"),
+          where("calendarId", "==", calDoc.id)
+        );
+        const evSnap = await getDocs(evQ);
+        await Promise.all(evSnap.docs.map(evDoc => {
+          const em = evDoc.data().members || [];
+          if (!em.includes(user.uid)) {
+            return updateDoc(doc(db, "events", evDoc.id), {
+              members: [...em, user.uid]
+            });
+          }
+        }));
+        showToast(`📅 Gedeelde agenda "${data.name}" gekoppeld!`, "ok");
+      }
+    }
+  }
+
+  // Nodig partner uit voor een agenda via e-mailadres
+  async function uitnodigPartner(calId, email) {
+    const emailLower = email.toLowerCase().trim();
+    if (!emailLower) return;
+    const calData = calendars.find(c => c.id === calId);
+    if (!calData) return;
+    const huidig  = calData.invites || [];
+    if (huidig.includes(emailLower)) {
+      showToast("⚠️ Dit e-mailadres is al uitgenodigd", "warn"); return;
+    }
+    await updateDoc(doc(db, "calendars", calId), {
+      invites: [...huidig, emailLower]
+    });
+    showToast(`✉️ Uitnodiging verstuurd naar ${emailLower}`, "ok");
+  }
+
   async function createCalendar(name) {
     const colors = ["#4285f4","#0f9d58","#db4437","#f4b400","#ab47bc","#00acc1","#ff7043"];
     const color  = colors[Math.floor(Math.random() * colors.length)];
     await addDoc(collection(db, "calendars"), {
       name, color,
-      members: [currentUser.uid],
-      owner:   currentUser.uid,
+      members:   [currentUser.uid],
+      invites:   [],
+      owner:     currentUser.uid,
       createdAt: Timestamp.now()
     });
   }
@@ -559,13 +708,24 @@
     const list = $("cal-list");
     list.innerHTML = "";
     calendars.forEach(cal => {
-      const item = el("div", "cal-item");
+      const isOwner = cal.owner === currentUser?.uid;
+      const item    = el("div", "cal-item");
       item.innerHTML = `
         <span class="cal-dot" style="background:${cal.color}"></span>
         <span class="cal-name">${cal.name}</span>
+        ${cal.invites?.length ? `<span class="cal-shared-badge" title="${cal.invites.join(', ')}">👥</span>` : ""}
+        ${isOwner ? `<button class="cal-share-btn" title="Delen" data-calid="${cal.id}">＋</button>` : ""}
       `;
       list.appendChild(item);
     });
+    // Deelknoppen
+    list.querySelectorAll(".cal-share-btn").forEach(btn =>
+      btn.addEventListener("click", e => {
+        e.stopPropagation();
+        const email = prompt("E-mailadres partner om mee te delen:");
+        if (email) uitnodigPartner(btn.dataset.calid, email);
+      })
+    );
 
     // Legenda event types
     const legend = $("type-legend");
@@ -1797,6 +1957,43 @@
   }
   .export-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
+
+  /* ── Google import keuze-dialog ──────────────── */
+  #gcal-keuze-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #gcal-keuze-modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 400px; padding: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    animation: popIn .18s ease; max-height: 85dvh; overflow-y: auto;
+  }
+  .gcal-keuze-title { font-size: 1.05rem; font-weight: 700; }
+  .gcal-keuze-sub   { font-size: .84rem; color: var(--muted); line-height: 1.5; }
+  #gcal-cal-list { display: flex; flex-direction: column; gap: 6px; }
+  .gcal-cal-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    cursor: pointer; transition: background .1s;
+  }
+  .gcal-cal-row:hover { background: var(--bg); }
+  .gcal-cal-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Sidebar: share knop ──────────────────────── */
+  .cal-share-btn {
+    margin-left: auto; border: none; background: none;
+    color: var(--primary); cursor: pointer; font-size: .9rem;
+    padding: 2px 5px; border-radius: 4px; opacity: 0;
+    transition: opacity .15s;
+  }
+  .cal-item:hover .cal-share-btn { opacity: 1; }
+  .cal-shared-badge {
+    font-size: .75rem; margin-left: auto;
+  }
+
   /* ── Toast ──────────────────────────────────── */
   .toast {
     position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -1861,7 +2058,7 @@
       <div id="type-legend"></div>
 
       <div class="sidebar-label" style="margin-top:12px">Google Agenda</div>
-      <button id="btn-gcal-sync">📆 Synchroniseren</button>
+      <button id="btn-gcal-sync">📆 Importeren uit Google</button>
       <div id="gcal-status"></div>
     </div>
 
@@ -1963,6 +2160,24 @@
       <button id="btn-modal-delete" class="btn-danger">🗑 Verwijderen</button>
       <button id="btn-modal-cancel" class="btn-ghost">Annuleren</button>
       <button id="btn-modal-save" class="btn-primary">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Google Agenda keuze-dialog -->
+<div id="gcal-keuze-overlay">
+  <div id="gcal-keuze-modal">
+    <div class="gcal-keuze-title">📆 Google Agenda importeren</div>
+    <div class="gcal-keuze-sub">
+      Selecteer welke agenda's je wilt importeren.<br>
+      Events worden opgeslagen in jouw agenda.<br>
+      <strong>Let op:</strong> dit is eenmalig — wijzigingen achteraf worden niet gesynchroniseerd.
+    </div>
+    <div id="gcal-cal-list"></div>
+    <div class="modal-actions">
+      <button id="btn-gcal-annuleer" class="btn-ghost">Annuleren</button>
+      <button id="btn-gcal-import" class="btn-primary">📥 Importeren</button>
     </div>
   </div>
 </div>
