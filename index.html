@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agenda</title>
+<meta name="theme-color" content="#1a73e8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Agenda">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiQWdlbmRhIiwic2hvcnRfbmFtZSI6IkFnZW5kYSIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjZjhmOWZhIiwidGhlbWVfY29sb3IiOiIjMWE3M2U4IiwiaWNvbnMiOlt7InNyYyI6ImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXdNQzl6ZG1jaUlIWnBaWGRDYjNnOUlqQWdNQ0F5TURBZ01qQXdJajRLSUNBOGNtVmpkQ0IzYVdSMGFEMGlNakF3SWlCb1pXbG5hSFE5SWpJd01DSWdjbmc5SWpNMklpQm1hV3hzUFNJak1XRTNNMlU0SWk4K0NpQWdQSEpsWTNRZ2VEMGlNVGdpSUhrOUlqUTBJaUIzYVdSMGFEMGlNVFkwSWlCb1pXbG5hSFE5SWpFek9DSWdjbmc5SWpFMElpQm1hV3hzUFNKM2FHbDBaU0l2UGdvZ0lEeHlaV04wSUhnOUlqRTRJaUI1UFNJME5DSWdkMmxrZEdnOUlqRTJOQ0lnYUdWcFoyaDBQU0kxTWlJZ2NuZzlJakUwSWlCbWFXeHNQU0lqTVdFM00yVTRJaTgrQ2lBZ1BISmxZM1FnZUQwaU1UZ2lJSGs5SWpjeUlpQjNhV1IwYUQwaU1UWTBJaUJvWldsbmFIUTlJakkwSWlCbWFXeHNQU0lqTVdFM00yVTRJaTgrQ2lBZ1BHTnBjbU5zWlNCamVEMGlOamdpSUdONVBTSXpPQ0lnY2owaU1URWlJR1pwYkd3OUluZG9hWFJsSWk4K0NpQWdQR05wY21Oc1pTQmplRDBpTVRNeUlpQmplVDBpTXpnaUlISTlJakV4SWlCbWFXeHNQU0ozYUdsMFpTSXZQZ29nSUR4MFpYaDBJSGc5SWpFd01DSWdlVDBpT0RZaUlIUmxlSFF0WVc1amFHOXlQU0p0YVdSa2JHVWlJR1pwYkd3OUluZG9hWFJsSWlCbWIyNTBMV1poYldsc2VUMGljMkZ1Y3kxelpYSnBaaUlnWm05dWRDMTNaV2xuYUhROUltSnZiR1FpSUdadmJuUXRjMmw2WlQwaU1qSWlQa0ZIUlU1RVFUd3ZkR1Y0ZEQ0S0lDQThkR1Y0ZENCNFBTSXpPQ0lnSUhrOUlqRXhOaUlnZEdWNGRDMWhibU5vYjNJOUltMXBaR1JzWlNJZ1ptbHNiRDBpSXpZMk5pSWdabTl1ZEMxbVlXMXBiSGs5SW5OaGJuTXRjMlZ5YVdZaUlHWnZiblF0YzJsNlpUMGlNVE1pUGsxQlBDOTBaWGgwUGdvZ0lEeDBaWGgwSUhnOUlqY3lJaUFnZVQwaU1URTJJaUIwWlhoMExXRnVZMmh2Y2owaWJXbGtaR3hsSWlCbWFXeHNQU0lqTmpZMklpQm1iMjUwTFdaaGJXbHNlVDBpYzJGdWN5MXpaWEpwWmlJZ1ptOXVkQzF6YVhwbFBTSXhNeUkrUkVrOEwzUmxlSFErQ2lBZ1BIUmxlSFFnZUQwaU1UQXdJaUI1UFNJeE1UWWlJSFJsZUhRdFlXNWphRzl5UFNKdGFXUmtiR1VpSUdacGJHdzlJaU0yTmpZaUlHWnZiblF0Wm1GdGFXeDVQU0p6WVc1ekxYTmxjbWxtSWlCbWIyNTBMWE5wZW1VOUlqRXpJajVYVHp3dmRHVjRkRDRLSUNBOGRHVjRkQ0I0UFNJeE1qZ2lJSGs5SWpFeE5pSWdkR1Y0ZEMxaGJtTm9iM0k5SW0xcFpHUnNaU0lnWm1sc2JEMGlJelkyTmlJZ1ptOXVkQzFtWVcxcGJIazlJbk5oYm5NdGMyVnlhV1lpSUdadmJuUXRjMmw2WlQwaU1UTWlQa1JQUEM5MFpYaDBQZ29nSUR4MFpYaDBJSGc5SWpFMk1pSWdlVDBpTVRFMklpQjBaWGgwTFdGdVkyaHZjajBpYldsa1pHeGxJaUJtYVd4c1BTSWpOalkySWlCbWIyNTBMV1poYldsc2VUMGljMkZ1Y3kxelpYSnBaaUlnWm05dWRDMXphWHBsUFNJeE15SStWbEk4TDNSbGVIUStDaUFnUEhSbGVIUWdlRDBpTXpnaUlDQjVQU0l4TkRnaUlIUmxlSFF0WVc1amFHOXlQU0p0YVdSa2JHVWlJR1pwYkd3OUlpTXhZVGN6WlRnaUlHWnZiblF0Wm1GdGFXeDVQU0p6WVc1ekxYTmxjbWxtSWlCbWIyNTBMWGRsYVdkb2REMGlZbTlzWkNJZ1ptOXVkQzF6YVhwbFBTSXlNaUkrTVR3dmRHVjRkRDRLSUNBOGRHVjRkQ0I0UFNJM01pSWdJSGs5SWpFME9DSWdkR1Y0ZEMxaGJtTm9iM0k5SW0xcFpHUnNaU0lnWm1sc2JEMGlJek16TXlJZ1ptOXVkQzFtWVcxcGJIazlJbk5oYm5NdGMyVnlhV1lpSUdadmJuUXRjMmw2WlQwaU1qSWlQakk4TDNSbGVIUStDaUFnUEhSbGVIUWdlRDBpTVRBd0lpQjVQU0l4TkRnaUlIUmxlSFF0WVc1amFHOXlQU0p0YVdSa2JHVWlJR1pwYkd3OUlpTXpNek1pSUdadmJuUXRabUZ0YVd4NVBTSnpZVzV6TFhObGNtbG1JaUJtYjI1MExYTnBlbVU5SWpJeUlqNHpQQzkwWlhoMFBnb2dJRHgwWlhoMElIZzlJakV5T0NJZ2VUMGlNVFE0SWlCMFpYaDBMV0Z1WTJodmNqMGliV2xrWkd4bElpQm1hV3hzUFNJak16TXpJaUJtYjI1MExXWmhiV2xzZVQwaWMyRnVjeTF6WlhKcFppSWdabTl1ZEMxemFYcGxQU0l5TWlJK05Ed3ZkR1Y0ZEQ0S0lDQThkR1Y0ZENCNFBTSXhOaklpSUhrOUlqRTBPQ0lnZEdWNGRDMWhibU5vYjNJOUltMXBaR1JzWlNJZ1ptbHNiRDBpSXpNek15SWdabTl1ZEMxbVlXMXBiSGs5SW5OaGJuTXRjMlZ5YVdZaUlHWnZiblF0YzJsNlpUMGlNaklpUGpVOEwzUmxlSFErQ2lBZ1BIUmxlSFFnZUQwaU16Z2lJQ0I1UFNJeE9ESWlJSFJsZUhRdFlXNWphRzl5UFNKdGFXUmtiR1VpSUdacGJHdzlJaU16TXpNaUlHWnZiblF0Wm1GdGFXeDVQU0p6WVc1ekxYTmxjbWxtSWlCbWIyNTBMWE5wZW1VOUlqSXlJajQ0UEM5MFpYaDBQZ29nSUR4MFpYaDBJSGc5SWpjeUlpQWdlVDBpTVRneUlpQjBaWGgwTFdGdVkyaHZjajBpYldsa1pHeGxJaUJtYVd4c1BTSWpNek16SWlCbWIyNTBMV1poYldsc2VUMGljMkZ1Y3kxelpYSnBaaUlnWm05dWRDMXphWHBsUFNJeU1pSStPVHd2ZEdWNGRENEtJQ0E4WTJseVkyeGxJR040UFNJeE1EQWlJR041UFNJeE56TWlJSEk5SWpFMklpQm1hV3hzUFNJak1XRTNNMlU0SWk4K0NpQWdQSFJsZUhRZ2VEMGlNVEF3SWlBZ2VUMGlNVGd3SWlCMFpYaDBMV0Z1WTJodmNqMGliV2xrWkd4bElpQm1hV3hzUFNKM2FHbDBaU0lnWm05dWRDMW1ZVzFwYkhrOUluTmhibk10YzJWeWFXWWlJR1p2Ym5RdGQyVnBaMmgwUFNKaWIyeGtJaUJtYjI1MExYTnBlbVU5SWpFNElqNHhNRHd2ZEdWNGRENEtQQzl6ZG1jKyIsInR5cGUiOiJpbWFnZS9zdmcreG1sIiwic2l6ZXMiOiI1MTJ4NTEyIiwicHVycG9zZSI6ImFueSBtYXNrYWJsZSJ9XX0=">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIj4KICA8cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgcng9IjM2IiBmaWxsPSIjMWE3M2U4Ii8+CiAgPHJlY3QgeD0iMTgiIHk9IjQ0IiB3aWR0aD0iMTY0IiBoZWlnaHQ9IjEzOCIgcng9IjE0IiBmaWxsPSJ3aGl0ZSIvPgogIDxyZWN0IHg9IjE4IiB5PSI0NCIgd2lkdGg9IjE2NCIgaGVpZ2h0PSI1MiIgcng9IjE0IiBmaWxsPSIjMWE3M2U4Ii8+CiAgPHJlY3QgeD0iMTgiIHk9IjcyIiB3aWR0aD0iMTY0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjMWE3M2U4Ii8+CiAgPGNpcmNsZSBjeD0iNjgiIGN5PSIzOCIgcj0iMTEiIGZpbGw9IndoaXRlIi8+CiAgPGNpcmNsZSBjeD0iMTMyIiBjeT0iMzgiIHI9IjExIiBmaWxsPSJ3aGl0ZSIvPgogIDx0ZXh0IHg9IjEwMCIgeT0iODYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZvbnQtc2l6ZT0iMjIiPkFHRU5EQTwvdGV4dD4KICA8dGV4dCB4PSIzOCIgIHk9IjExNiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzY2NiIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiPk1BPC90ZXh0PgogIDx0ZXh0IHg9IjcyIiAgeT0iMTE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjNjY2IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyI+REk8L3RleHQ+CiAgPHRleHQgeD0iMTAwIiB5PSIxMTYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM2NjYiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIj5XTzwvdGV4dD4KICA8dGV4dCB4PSIxMjgiIHk9IjExNiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzY2NiIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiPkRPPC90ZXh0PgogIDx0ZXh0IHg9IjE2MiIgeT0iMTE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjNjY2IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyI+VlI8L3RleHQ+CiAgPHRleHQgeD0iMzgiICB5PSIxNDgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiMxYTczZTgiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIyMiI+MTwvdGV4dD4KICA8dGV4dCB4PSI3MiIgIHk9IjE0OCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzMzMyIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjIiPjI8L3RleHQ+CiAgPHRleHQgeD0iMTAwIiB5PSIxNDgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiMzMzMiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjIyIj4zPC90ZXh0PgogIDx0ZXh0IHg9IjEyOCIgeT0iMTQ4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjMzMzIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMiI+NDwvdGV4dD4KICA8dGV4dCB4PSIxNjIiIHk9IjE0OCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzMzMyIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjIiPjU8L3RleHQ+CiAgPHRleHQgeD0iMzgiICB5PSIxODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiMzMzMiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjIyIj44PC90ZXh0PgogIDx0ZXh0IHg9IjcyIiAgeT0iMTgyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjMzMzIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMiI+OTwvdGV4dD4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxNzMiIHI9IjE2IiBmaWxsPSIjMWE3M2U4Ii8+CiAgPHRleHQgeD0iMTAwIiAgeT0iMTgwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmb250LXNpemU9IjE4Ij4xMDwvdGV4dD4KPC9zdmc+">
 
 <!-- Google Identity Services (voor Google Calendar sync) -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -49,6 +55,7 @@
     verjaardag: { label: "Verjaardag",        icon: "🎂", color: "#e91e63" },
     vakantie:   { label: "Vakantie",          icon: "🏖️", color: "#ff9800" },
     bijzonder:  { label: "Bijzondere dag",    icon: "⭐", color: "#9c27b0" },
+    sterfdag:   { label: "Sterfdag",          icon: "🕯️", color: "#546e7a"  },
   };
 
   // ── State ────────────────────────────────────
@@ -108,6 +115,16 @@
     });
 
     // nav
+    // ── Android back button ──────────────────
+    history.pushState({ app: "agenda" }, "");
+    window.addEventListener("popstate", () => {
+      if ($("modal-overlay").style.display === "flex") {
+        closeModal();
+      } else {
+        history.pushState({ app: "agenda" }, "");
+      }
+    });
+
     $("btn-prev").addEventListener("click",  () => navigate(-1));
     $("btn-next").addEventListener("click",  () => navigate(+1));
     $("btn-today").addEventListener("click", () => { viewDate = new Date(); renderAll(); });
@@ -328,21 +345,35 @@
       const cell    = el("div", "day-cell");
       if (isSameDay(dateObj, today)) cell.classList.add("today");
 
+      const dayEvs    = getEventsForDay(dateObj);
+      const alldayEvs = dayEvs.filter(ev => ev.allDay);
+      const timedEvs  = dayEvs.filter(ev => !ev.allDay);
+
+      // Hele-dag events: volle balk BOVEN dagcijfer
+      alldayEvs.slice(0, 2).forEach(ev => {
+        const bar = el("div", "ev-allday-bar");
+        bar.style.background = eventColor(ev);
+        bar.innerHTML = `<span class="ev-icon">${eventIcon(ev)}</span><span class="ev-label">${ev.title}</span>`;
+        bar.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
+        cell.appendChild(bar);
+      });
+
+      // Dagcijfer
       cell.appendChild(el("div", "day-number", String(d)));
 
-      const dayEvs = getEventsForDay(dateObj);
-      dayEvs.slice(0, 3).forEach(ev => {
-        const color = eventColor(ev);
-        const icon  = eventIcon(ev);
-        const pill  = el("div", "ev-pill");
-        pill.style.background = color;
-        pill.innerHTML = `<span class="ev-icon">${icon}</span><span class="ev-label">${ev.title}</span>`;
+      // Getijde events
+      timedEvs.slice(0, 2).forEach(ev => {
+        const pill = el("div", "ev-pill");
+        pill.style.background = eventColor(ev);
+        pill.innerHTML = `<span class="ev-icon">${eventIcon(ev)}</span><span class="ev-label">${ev.title}</span>`;
         if (ev.gcal) pill.classList.add("ev-pill-gcal");
         pill.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
         cell.appendChild(pill);
       });
-      if (dayEvs.length > 3)
-        cell.appendChild(el("div", "ev-more", `+${dayEvs.length - 3} meer`));
+
+      const shown = Math.min(alldayEvs.length, 2) + Math.min(timedEvs.length, 2);
+      if (dayEvs.length > shown)
+        cell.appendChild(el("div", "ev-more", `+${dayEvs.length - shown} meer`));
 
       cell.addEventListener("click", () => {
         viewDate = dateObj; currentView = "day";
@@ -611,12 +642,12 @@
     $("type-icon-preview").textContent = t ? t.icon : "📅";
 
     // Verjaardagen en bijzondere dagen: standaard hele dag
-    if (type === "verjaardag" || type === "bijzonder" || type === "vakantie") {
+    if (type === "verjaardag" || type === "bijzonder" || type === "vakantie" || type === "sterfdag") {
       $("ev-allday").checked = true;
       $("time-fields").style.display = "none";
     }
     // Verjaardagen: standaard jaarlijks herhalen
-    if (type === "verjaardag") {
+    if (type === "verjaardag" || type === "sterfdag") {
       $("ev-repeat").value = "yearly";
       $("repeat-options").style.display = "none";
     }
@@ -882,6 +913,16 @@
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 26px; min-height: 26px;
   }
+  .ev-allday-bar {
+    display: flex; align-items: center; gap: 3px;
+    color: #fff; border-radius: 3px 3px 0 0;
+    padding: 2px 5px; font-size: .76rem; margin-bottom: 0;
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: filter .1s;
+    margin-left: -4px; width: calc(100% + 8px);
+  }
+  .ev-allday-bar:hover { filter: brightness(1.1); }
+
   .ev-pill {
     display: flex; align-items: center; gap: 3px;
     color: #fff; border-radius: 4px; padding: 2px 6px;
@@ -1103,6 +1144,7 @@
           <option value="verjaardag">🎂 Verjaardag</option>
           <option value="vakantie">🏖️ Vakantie</option>
           <option value="bijzonder">⭐ Bijzondere dag</option>
+          <option value="sterfdag">🕯️ Sterfdag</option>
         </select>
         <span id="type-icon-preview">📅</span>
       </div>
