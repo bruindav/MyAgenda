@@ -1539,7 +1539,6 @@
     await Promise.all(batch.map(ev => addDoc(collection(db, "events"), ev)));
     showToast("📅 " + batch.length + " trainingen in agenda gezet", "info");
   }
-  }
 
   // ── Swap week ─────────────────────────────────────────
   async function swapWeek(idx) {
