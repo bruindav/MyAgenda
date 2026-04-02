@@ -990,31 +990,6 @@
     // Groepen tonen
     renderCalGroups(list);
 
-    🗑</button>` : ""}
-        </span>
-      `;
-      list.appendChild(item);
-    });
-    // Deelknoppen
-    list.querySelectorAll(".cal-share-btn").forEach(btn =>
-      btn.addEventListener("click", e => {
-        e.stopPropagation();
-        const email = prompt("E-mailadres om mee te delen:");
-        if (email) uitnodigPartner(btn.dataset.calid, email);
-      })
-    );
-    // Verwijderknoppen
-    list.querySelectorAll(".cal-del-btn").forEach(btn =>
-      btn.addEventListener("click", async e => {
-        e.stopPropagation();
-        const naam = btn.dataset.calname;
-        if (!confirm(`Agenda "${naam}" verwijderen?
-
-Alle events in deze agenda worden ook verwijderd.`)) return;
-        await verwijderAgenda(btn.dataset.calid);
-      })
-    );
-
   }
 
   function renderCalGroups(container) {
@@ -1027,7 +1002,7 @@ Alle events in deze agenda worden ook verwijderd.`)) return;
       const kleuren = ids.map(id => calendars.find(c=>c.id===id)?.color).filter(Boolean);
       const row = el("div", "cal-item cal-group-row");
       row.innerHTML = `
-        <span class="cal-group-dots">${kleuren.map(k=>`<span style="background:${k};width:8px;height:8px;border-radius:50%;display:inline-block"></span>`).join("")}</span>
+        <span class="cal-group-dots">${kleuren.map(k=>'<span style="background:'+k+';width:8px;height:8px;border-radius:50%;display:inline-block"></span>').join("")}</span>
         <span class="cal-name">${naam}</span>
         <button class="cal-group-del" data-groep="${naam}" title="Groep verwijderen" style="margin-left:auto;border:none;background:none;cursor:pointer;font-size:.8rem;opacity:.6">✕</button>
       `;
