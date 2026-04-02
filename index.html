@@ -750,8 +750,14 @@
     const first    = new Date(year, month, 1);
     const startDay = (first.getDay() + 6) % 7;
 
-    ["Ma","Di","Wo","Do","Vr","Za","Zo"].forEach(d => {
-      grid.appendChild(el("div", "grid-header", d));
+    const dagNamen = [
+      ["Ma","Maandag"], ["Di","Dinsdag"], ["Wo","Woensdag"],
+      ["Do","Donderdag"], ["Vr","Vrijdag"], ["Za","Zaterdag"], ["Zo","Zondag"]
+    ];
+    dagNamen.forEach(([kort, lang]) => {
+      const h = el("div", "grid-header");
+      h.innerHTML = `<span class="gh-kort">${kort}</span><span class="gh-lang">${lang}</span>`;
+      grid.appendChild(h);
     });
 
     for (let i = 0; i < startDay; i++)
@@ -1447,7 +1453,8 @@
 
     await setDoc(doc(db, "roosters", currentUser.uid), config);
     closeRoosterWizard();
-    showToast("✅ Rooster opgeslagen", "ok");
+    const doelCal = calendars.find(c => c.owner === currentUser.uid);
+    showToast("✅ Rooster opgeslagen" + (doelCal ? " → " + doelCal.name : ""), "ok");
 
     // Zet alle training-events in Firestore
     await syncRoosterToEvents(config);
@@ -1494,33 +1501,44 @@
   }
 
   async function syncRoosterToEvents(config) {
-    // Verwijder eerst bestaande training-events van deze user
+    // Verwijder bestaande rooster-events via enkelvoudige query
     const q = query(collection(db, "events"),
       where("members", "array-contains", currentUser.uid),
-      where("type", "==", "training"),
       where("rooster", "==", true)
     );
     const snap = await getDocs(q);
     await Promise.all(snap.docs.map(d => deleteDoc(doc(db, "events", d.id))));
 
-    // Voeg nieuwe events toe
-    const batch = config.weken.map(week => ({
-      title:      `🏃 Training — ${week.wie === "naam1" ? config.naam1 : config.naam2}`,
-      type:       "training",
-      allDay:     true,
-      startDate:  week.datum,
-      endDate:    week.datum,
-      calendarId: "",
-      rooster:    true,
-      wie:        week.wie,
-      swap:       week.swap,
-      notitie:    week.notitie,
-      members:    [currentUser.uid],
-      createdAt:  Timestamp.now()
-    }));
+    // Gebruik eerste eigen kalender als doelagenda
+    let doelCalId = calendars.find(c => c.owner === currentUser.uid)?.id || "";
+    if (!doelCalId) {
+      await createCalendar("Training");
+      doelCalId = calendars.find(c => c.owner === currentUser.uid)?.id || "";
+    }
+
+    // Voeg nieuwe events toe (sla "geen training" weken over)
+    const batch = config.weken
+      .filter(week => !week.geen)
+      .map(week => ({
+        title:      week.invaller
+                      ? "🔄 Invaller: " + week.invaller
+                      : "🏃 Training — " + (week.wie === "naam1" ? config.naam1 : config.naam2),
+        type:       "training",
+        allDay:     true,
+        startDate:  week.datum,
+        endDate:    week.datum,
+        calendarId: doelCalId,
+        rooster:    true,
+        wie:        week.wie,
+        swap:       week.swap,
+        notitie:    week.notitie || "",
+        members:    [currentUser.uid],
+        createdAt:  Timestamp.now()
+      }));
 
     await Promise.all(batch.map(ev => addDoc(collection(db, "events"), ev)));
-    showToast(`📅 ${batch.length} trainingen in agenda gezet`, "info");
+    showToast("📅 " + batch.length + " trainingen in agenda gezet", "info");
+  }
   }
 
   // ── Swap week ─────────────────────────────────────────
@@ -1574,19 +1592,15 @@
   }
 
   async function saveWeekMenu() {
-    const idx    = weekMenuIdx;
-    const weken  = [...roosterConfig.weken];
-    const w      = { ...weken[idx] };
+    if (!roosterConfig) return;
+    const idx      = weekMenuIdx;
+    const invaller = $("wmenu-invaller").value.trim();
+    const geen     = $("wmenu-geen-check").checked
+      ? ($("wmenu-geen").value.trim() || "geen reden") : "";
 
-    // Invaller
-    w.invaller = $("wmenu-invaller").value.trim();
-
-    // Geen training
-    w.geen = $("wmenu-geen-check").checked
-      ? ($("wmenu-geen").value.trim() || "geen reden")
-      : "";
-
-    weken[idx] = w;
+    const weken = roosterConfig.weken.map((w, i) =>
+      i === idx ? { ...w, invaller, geen } : { ...w }
+    );
     await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
     await syncRoosterToEvents({ ...roosterConfig, weken });
     closeWeekMenu();
@@ -1594,12 +1608,13 @@
   }
 
   async function doSwapFromMenu() {
+    if (!roosterConfig) return;
     const idx   = weekMenuIdx;
-    const weken = [...roosterConfig.weken];
-    const w     = { ...weken[idx] };
-    w.wie  = w.wie === "naam1" ? "naam2" : "naam1";
-    w.swap = !w.swap;
-    weken[idx] = w;
+    const weken = roosterConfig.weken.map((w, i) =>
+      i === idx
+        ? { ...w, wie: w.wie === "naam1" ? "naam2" : "naam1", swap: !w.swap }
+        : { ...w }
+    );
     await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
     await syncRoosterToEvents({ ...roosterConfig, weken });
     closeWeekMenu();
@@ -1883,7 +1898,13 @@
     text-align: center; text-transform: uppercase; letter-spacing: .02em;
     background: var(--surface);
     border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-    overflow: hidden;
+    overflow: hidden; white-space: nowrap;
+  }
+  .gh-lang { display: none; }
+  .gh-kort { display: inline; }
+  @media(min-width:560px) {
+    .gh-lang { display: inline; font-size: .72rem; }
+    .gh-kort { display: none; }
   }
   .day-cell {
     min-height: 70px;
