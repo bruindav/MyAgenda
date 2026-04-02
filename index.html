@@ -937,7 +937,8 @@
     calendars.forEach(cal => {
       const isOwner = cal.owner === currentUser?.uid;
       const isHidden = hiddenCals.has(cal.id);
-    item.innerHTML = `
+      const item = el("div", "cal-item" + (isHidden ? " cal-hidden" : ""));
+      item.innerHTML = `
         <input type="checkbox" class="cal-toggle" data-calid="${cal.id}"
           ${isHidden ? "" : "checked"} title="Tonen/verbergen">
         <span class="cal-dot" style="background:${cal.color};opacity:${isHidden?0.4:1}"></span>
