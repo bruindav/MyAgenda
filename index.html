@@ -863,22 +863,47 @@
       body.appendChild(dc);
     });
     grid.appendChild(body);
-    setTimeout(() => { body.scrollTop = 8 * 48; }, 50);
+    setTimeout(() => {
+      // Scroll naar vroegste event van de week, of naar 7:00
+      const dagEvents = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(mon); d.setDate(d.getDate() + i);
+        return getEventsForDay(d);
+      }).flat();
+      const vroegste = dagEvents
+        .map(ev => parseTime(ev.startTime))
+        .filter(t => t !== null)
+        .reduce((min, t) => Math.min(min, t), 7 * 60); // fallback 7:00
+      body.scrollTop = Math.max(0, (vroegste / 60 - 0.5)) * 48;
+    }, 50);
   }
 
   function placeEventInCol(col, ev) {
     if (ev.allDay) return;
-    const start  = ev.startTime ? parseTime(ev.startTime) : 0;
-    const end    = ev.endTime   ? parseTime(ev.endTime)   : start + 60;
-    const top    = (start / 60) * 48;
-    const height = Math.max(((end - start) / 60) * 48, 22);
+    const startMin = parseTime(ev.startTime);
+    const endMin   = parseTime(ev.endTime);
+    // Als geen geldige tijd: sla over (wordt als hele-dag getoond)
+    if (startMin === null) return;
+    const endMinVal = endMin !== null ? endMin : startMin + 60;
+    const top    = (startMin / 60) * 48;
+    const height = Math.max(((endMinVal - startMin) / 60) * 48, 24);
     const color  = eventColor(ev);
     const icon   = eventIcon(ev);
     const pill   = el("div", "week-ev-pill");
     pill.style.top    = top + "px";
     pill.style.height = height + "px";
     pill.style.background = color;
-    pill.innerHTML = `<span class="ev-icon">${icon}</span> ${ev.title}`;
+    // Training: naam onder "Training"
+    if (ev.type === "training" && ev.title.includes(" — ")) {
+      const [prefix, naam] = ev.title.split(" — ");
+      pill.innerHTML = `<span class="ev-icon" style="font-size:.7em">${icon}</span>`
+        + `<span style="display:flex;flex-direction:column;line-height:1.15;font-size:.72rem;min-width:0">`
+        + `<span style="font-weight:600">${prefix}</span>`
+        + `<span style="opacity:.85;font-size:.9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${naam}</span>`
+        + `</span>`;
+    } else {
+      pill.innerHTML = `<span class="ev-icon" style="font-size:.75em">${icon}</span>`
+        + `<span style="font-size:.73rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ev.title}</span>`;
+    }
     pill.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
     col.appendChild(pill);
   }
@@ -904,7 +929,14 @@
     getEventsForDay(viewDate).forEach(ev => placeEventInCol(dc, ev));
     body.appendChild(dc);
     grid.appendChild(body);
-    setTimeout(() => { body.scrollTop = 8 * 48; }, 50);
+    setTimeout(() => {
+      const dagEvs = getEventsForDay(viewDate);
+      const vroegste = dagEvs
+        .map(ev => parseTime(ev.startTime))
+        .filter(t => t !== null)
+        .reduce((min, t) => Math.min(min, t), 7 * 60);
+      body.scrollTop = Math.max(0, (vroegste / 60 - 0.5)) * 48;
+    }, 50);
   }
 
   // ── LIST VIEW ────────────────────────────────
@@ -1232,7 +1264,9 @@
   }
 
   function parseTime(t) {
+    if (!t || typeof t !== "string" || !t.includes(":")) return null;
     const [h, m] = t.split(":").map(Number);
+    if (isNaN(h)) return null;
     return h * 60 + (m || 0);
   }
 
@@ -2041,8 +2075,9 @@
   .week-ev-pill {
     position: absolute; left: 2px; right: 2px;
     color: #fff; border-radius: 4px; padding: 2px 4px;
-    font-size: .74rem; overflow: hidden; cursor: pointer;
-    z-index: 2; transition: filter .1s;
+    font-size: .72rem; cursor: pointer; z-index: 2;
+    transition: filter .1s; overflow: hidden;
+    display: flex; align-items: flex-start; gap: 2px;
   }
   .week-ev-pill:hover { filter: brightness(1.12); }
 
