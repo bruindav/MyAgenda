@@ -777,7 +777,12 @@
       alldayEvs.slice(0, 2).forEach(ev => {
         const bar = el("div", "ev-allday-bar");
         bar.style.background = eventColor(ev);
-        bar.textContent = `${eventIcon(ev)} ${ev.title}`;
+        if (ev.type === "training" && ev.title.includes(" — ")) {
+          const [prefix, naam] = ev.title.split(" — ");
+          bar.innerHTML = `<span style="font-size:.9em">${eventIcon(ev)}</span> <span style="display:inline-flex;flex-direction:column;line-height:1.2"><span>${prefix}</span><span style="font-weight:400;opacity:.85">${naam}</span></span>`;
+        } else {
+          bar.textContent = `${eventIcon(ev)} ${ev.title}`;
+        }
         bar.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
         cell.appendChild(bar);
       });
@@ -789,7 +794,12 @@
       timedEvs.slice(0, 2).forEach(ev => {
         const pill = el("div", "ev-pill");
         pill.style.background = eventColor(ev);
-        pill.textContent = `${eventIcon(ev)} ${ev.title}`;
+        if (ev.type === "training" && ev.title.includes(" — ")) {
+          const [prefix, naam] = ev.title.split(" — ");
+          pill.innerHTML = `${eventIcon(ev)} <span style="display:inline-flex;flex-direction:column;line-height:1.1"><span>${prefix}</span><span style="font-weight:400;font-size:.9em;opacity:.85">${naam}</span></span>`;
+        } else {
+          pill.textContent = `${eventIcon(ev)} ${ev.title}`;
+        }
         if (ev.gcal) pill.classList.add("ev-pill-gcal");
         pill.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
         cell.appendChild(pill);
@@ -1421,7 +1431,9 @@
     $("rw-startdate").value  = cfg?.startDate || eersteZondagVanJaar(jaar);
     // Einddatum: standaard laatste zondag van het jaar
     const defaultEnd = cfg?.endDate || laatsteZondagVanJaar(jaar);
-    $("rw-enddate").value = defaultEnd;
+    $("rw-enddate").value   = defaultEnd;
+    $("rw-starttime").value = cfg?.startTime || "09:00";
+    $("rw-endtime").value   = cfg?.endTime   || "10:30";
   }
 
   function closeRoosterWizard() {
@@ -1433,8 +1445,10 @@
     const naam2    = $("rw-naam2").value.trim() || "Vriend";
     const pat1     = parseInt($("rw-patroon1").value) || 2;
     const pat2     = parseInt($("rw-patroon2").value) || 2;
-    const startStr = $("rw-startdate").value;
-    const endStr   = $("rw-enddate").value;
+    const startStr  = $("rw-startdate").value;
+    const endStr    = $("rw-enddate").value;
+    const startTime = $("rw-starttime").value || "09:00";
+    const endTime   = $("rw-endtime").value   || "10:30";
 
     if (!startStr) { alert("Vul een startdatum in."); return; }
     if (!endStr || endStr <= startStr) { alert("Vul een geldige einddatum in (na de startdatum)."); return; }
@@ -1447,6 +1461,8 @@
       patroon:   [pat1, pat2],
       startDate: startStr,
       endDate:   endStr,
+      startTime,
+      endTime,
       weken,
       updatedAt: Timestamp.now()
     };
@@ -1521,12 +1537,14 @@
       .filter(week => !week.geen)
       .map(week => ({
         title:      week.invaller
-                      ? "🔄 Invaller: " + week.invaller
-                      : "🏃 Training — " + (week.wie === "naam1" ? config.naam1 : config.naam2),
+                      ? "Invaller: " + week.invaller
+                      : "Training — " + (week.wie === "naam1" ? config.naam1 : config.naam2),
         type:       "training",
-        allDay:     true,
+        allDay:     !(config.startTime && config.endTime),
         startDate:  week.datum,
         endDate:    week.datum,
+        startTime:  config.startTime || "",
+        endTime:    config.endTime   || "",
         calendarId: doelCalId,
         rooster:    true,
         wie:        week.wie,
@@ -1893,16 +1911,18 @@
     table-layout: fixed;
   }
   .grid-header {
-    padding: 5px 2px; font-size: .68rem; font-weight: 700; color: var(--muted);
-    text-align: center; text-transform: uppercase; letter-spacing: .02em;
-    background: var(--surface);
-    border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    padding: 6px 2px; font-size: .68rem; font-weight: 700; color: var(--muted);
+    text-align: center; text-transform: uppercase; letter-spacing: .01em;
+    background: #f8f9fa;
+    border-right: 1px solid var(--border); border-bottom: 2px solid var(--border);
     overflow: hidden; white-space: nowrap;
   }
+  /* Altijd korte naam tonen */
   .gh-lang { display: none; }
-  .gh-kort { display: inline; }
-  @media(min-width:560px) {
-    .gh-lang { display: inline; font-size: .72rem; }
+  .gh-kort { display: inline; font-size: .65rem; font-weight: 700; }
+  /* Bredere schermen: volledige naam */
+  @media(min-width:480px) {
+    .gh-lang { display: inline; font-size: .70rem; }
     .gh-kort { display: none; }
   }
   .day-cell {
@@ -2661,6 +2681,17 @@
       <div class="form-row" style="flex:1;min-width:130px">
         <label>Laatste trainingszondag</label>
         <input id="rw-enddate" type="date">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div class="form-row" style="flex:1;min-width:120px">
+        <label>Starttijd training</label>
+        <input id="rw-starttime" type="time" value="09:00">
+      </div>
+      <div class="form-row" style="flex:1;min-width:120px">
+        <label>Eindtijd training</label>
+        <input id="rw-endtime" type="time" value="10:30">
       </div>
     </div>
 
