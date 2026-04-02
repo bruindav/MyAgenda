@@ -303,10 +303,11 @@
         { headers: { Authorization: `Bearer ${gcalToken}` } }
       );
       const calsData = await calsRes.json();
-      gcalCalendarList = (calsData.items || []).map(c => ({
+      gcalCalendarList = (calsData.items || []).map((c, i) => ({
         id:    c.id,
         name:  c.summary,
         color: c.backgroundColor || "#4285f4",
+        _idx:  i,
       }));
       openGcalKeuzeDialog();
     } catch (err) {
@@ -321,12 +322,25 @@
   function openGcalKeuzeDialog() {
     const list = $("gcal-cal-list");
     list.innerHTML = "";
-    gcalCalendarList.forEach((cal, i) => {
+
+    // Bouw dropdown opties van lokale agenda's
+    const calOpties = calendars
+      .filter(c => c.owner === currentUser?.uid)
+      .map(c => `<option value="${c.id}">${c.name}</option>`)
+      .join("");
+    const nieuweOptie = `<option value="__nieuw__">➕ Nieuwe agenda aanmaken</option>`;
+
+    gcalCalendarList.forEach((gcal, i) => {
       const row = el("div", "gcal-cal-row");
       row.innerHTML = `
-        <input type="checkbox" id="gcal-cb-${i}" checked>
-        <span class="gcal-cal-dot" style="background:${cal.color}"></span>
-        <label for="gcal-cb-${i}" style="cursor:pointer;flex:1">${cal.name}</label>
+        <input type="checkbox" id="gcal-cb-${i}" checked style="flex-shrink:0">
+        <span class="gcal-cal-dot" style="background:${gcal.color}"></span>
+        <div class="gcal-cal-info">
+          <span class="gcal-cal-naam">${gcal.name}</span>
+          <select class="gcal-doel-sel" id="gcal-doel-${i}" style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:2px 4px;margin-top:2px">
+            ${nieuweOptie}${calOpties}
+          </select>
+        </div>
       `;
       list.appendChild(row);
     });
@@ -351,30 +365,30 @@
     const timeMin = new Date(); timeMin.setFullYear(timeMin.getFullYear() - 1);
     const timeMax = new Date(); timeMax.setFullYear(timeMax.getFullYear() + 2);
 
-    // Zorg dat de eerste eigen kalender bestaat
-    let targetCalId = calendars[0]?.id;
-    if (!targetCalId) {
-      await createCalendar("Persoonlijk");
-      targetCalId = calendars[0]?.id;
-    }
-
     let totaalImport = 0;
     let totaalGeslagen = 0;
 
     for (const gcal of geselecteerd) {
-      // Zoek of we al een lokale agenda hebben met deze gcal-naam, anders maak nieuw
-      let localCal = calendars.find(c => c.gcalId === gcal.id);
-      if (!localCal) {
-        // Maak nieuwe lokale agenda aan met zelfde naam en kleur
+      // Bepaal doelagenda op basis van gebruikerskeuze
+      const doelSel = $(`gcal-doel-${gcal._idx}`);
+      const doelVal = doelSel?.value || "__nieuw__";
+
+      let localCal;
+      if (doelVal === "__nieuw__") {
+        // Maak nieuwe lokale agenda aan met naam en kleur van Google-agenda
         const ref = await addDoc(collection(db, "calendars"), {
           name:      gcal.name,
           color:     gcal.color,
           gcalId:    gcal.id,
+          invites:   [],
           members:   [currentUser.uid],
           owner:     currentUser.uid,
           createdAt: Timestamp.now()
         });
         localCal = { id: ref.id, name: gcal.name, color: gcal.color };
+      } else {
+        localCal = calendars.find(c => c.id === doelVal)
+                   || { id: doelVal, name: "Onbekend", color: "#4285f4" };
       }
 
       try {
@@ -512,6 +526,19 @@
       invites: [...huidig, emailLower]
     });
     showToast(`✉️ Uitnodiging verstuurd naar ${emailLower}`, "ok");
+  }
+
+  async function verwijderAgenda(calId) {
+    // Verwijder alle events in deze agenda
+    const evQ = query(collection(db, "events"),
+      where("members", "array-contains", currentUser.uid),
+      where("calendarId", "==", calId)
+    );
+    const evSnap = await getDocs(evQ);
+    await Promise.all(evSnap.docs.map(d => deleteDoc(doc(db, "events", d.id))));
+    // Verwijder de agenda zelf
+    await deleteDoc(doc(db, "calendars", calId));
+    showToast("🗑 Agenda verwijderd", "warn");
   }
 
   async function createCalendar(name) {
@@ -771,7 +798,10 @@
         <span class="cal-dot" style="background:${cal.color}"></span>
         <span class="cal-name">${cal.name}</span>
         ${cal.invites?.length ? `<span class="cal-shared-badge" title="${cal.invites.join(', ')}">👥</span>` : ""}
-        ${isOwner ? `<button class="cal-share-btn" title="Delen" data-calid="${cal.id}">＋</button>` : ""}
+        <span class="cal-item-actions">
+          ${isOwner ? `<button class="cal-share-btn" title="Uitnodigen" data-calid="${cal.id}">👥</button>` : ""}
+          ${isOwner ? `<button class="cal-del-btn"   title="Verwijderen" data-calid="${cal.id}" data-calname="${cal.name}">🗑</button>` : ""}
+        </span>
       `;
       list.appendChild(item);
     });
@@ -779,8 +809,19 @@
     list.querySelectorAll(".cal-share-btn").forEach(btn =>
       btn.addEventListener("click", e => {
         e.stopPropagation();
-        const email = prompt("E-mailadres partner om mee te delen:");
+        const email = prompt("E-mailadres om mee te delen:");
         if (email) uitnodigPartner(btn.dataset.calid, email);
+      })
+    );
+    // Verwijderknoppen
+    list.querySelectorAll(".cal-del-btn").forEach(btn =>
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        const naam = btn.dataset.calname;
+        if (!confirm(`Agenda "${naam}" verwijderen?
+
+Alle events in deze agenda worden ook verwijderd.`)) return;
+        await verwijderAgenda(btn.dataset.calid);
       })
     );
 
@@ -2036,24 +2077,30 @@
   .gcal-keuze-sub   { font-size: .84rem; color: var(--muted); line-height: 1.5; }
   #gcal-cal-list { display: flex; flex-direction: column; gap: 6px; }
   .gcal-cal-row {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: flex-start; gap: 10px;
     padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
-    cursor: pointer; transition: background .1s;
+    transition: background .1s;
   }
   .gcal-cal-row:hover { background: var(--bg); }
-  .gcal-cal-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .gcal-cal-dot  { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; }
+  .gcal-cal-info { display: flex; flex-direction: column; flex: 1; gap: 3px; }
+  .gcal-cal-naam { font-size: .88rem; font-weight: 500; }
+  .gcal-doel-sel { width: 100%; }
 
   /* ── Sidebar: share knop ──────────────────────── */
-  .cal-share-btn {
-    margin-left: auto; border: none; background: none;
-    color: var(--primary); cursor: pointer; font-size: .9rem;
-    padding: 2px 5px; border-radius: 4px; opacity: 0;
-    transition: opacity .15s;
+  .cal-item-actions {
+    margin-left: auto; display: flex; gap: 2px;
+    opacity: 0; transition: opacity .15s; flex-shrink: 0;
   }
-  .cal-item:hover .cal-share-btn { opacity: 1; }
-  .cal-shared-badge {
-    font-size: .75rem; margin-left: auto;
+  .cal-item:hover .cal-item-actions { opacity: 1; }
+  .cal-share-btn, .cal-del-btn {
+    border: none; background: none; cursor: pointer;
+    font-size: .85rem; padding: 2px 4px; border-radius: 4px;
+    transition: background .1s;
   }
+  .cal-share-btn:hover { background: #e8f0fe; }
+  .cal-del-btn:hover   { background: #fce8e6; }
+  .cal-shared-badge    { font-size: .75rem; }
 
   /* ── Toast ──────────────────────────────────── */
   .toast {
