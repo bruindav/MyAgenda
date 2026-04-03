@@ -440,8 +440,8 @@
               allDay:       !!ev.start?.date,
               startDate,
               endDate,
-              startTime:    ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
-              endTime:      ev.end?.dateTime   ? ev.end.dateTime.slice(11, 16)   : "",
+              startTime:    ev.start?.dateTime ? localTime(ev.start.dateTime) : "",
+              endTime:      ev.end?.dateTime   ? localTime(ev.end.dateTime)   : "",
               description:  ev.description || "",
               location:     ev.location || "",
               calendarId:   localCal.id,
@@ -864,23 +864,28 @@
     });
     grid.appendChild(body);
     setTimeout(() => {
-      // Scroll naar vroegste event van de week, of naar 7:00
+      // Zoek vroegste event, maar nooit voor 6:00 en nooit na 9:00 scrollen
       const dagEvents = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(mon); d.setDate(d.getDate() + i);
-        return getEventsForDay(d);
+        const d2 = new Date(mon); d2.setDate(d2.getDate() + i);
+        return getEventsForDay(d2);
       }).flat();
-      const vroegste = dagEvents
-        .map(ev => parseTime(ev.startTime))
-        .filter(t => t !== null)
-        .reduce((min, t) => Math.min(min, t), 7 * 60); // fallback 7:00
-      body.scrollTop = Math.max(0, (vroegste / 60 - 0.5)) * 48;
-    }, 50);
+      const tijden = dagEvents.map(ev => parseTime(ev.startTime)).filter(t => t !== null && t >= 0);
+      const vroegste = tijden.length > 0
+        ? Math.max(6 * 60, Math.min(tijden.reduce((a,b) => Math.min(a,b)), 9 * 60))
+        : 7 * 60;
+      body.scrollTop = (vroegste / 60 - 0.5) * 48;
+    }, 80);
   }
 
   function placeEventInCol(col, ev) {
     if (ev.allDay) return;
-    const startMin = parseTime(ev.startTime);
-    const endMin   = parseTime(ev.endTime);
+    // Forceer string parsing - zorg dat we altijd HH:MM hebben
+    const stRaw = (ev.startTime || "").toString().trim();
+    const etRaw = (ev.endTime   || "").toString().trim();
+    const startMin = parseTime(stRaw);
+    const endMin   = parseTime(etRaw);
+    // Debug (tijdelijk)
+    if (ev.type === "training") console.log("[training]", ev.title, "startTime:", JSON.stringify(stRaw), "→", startMin, "min");
     // Als geen geldige tijd: sla over (wordt als hele-dag getoond)
     if (startMin === null) return;
     const endMinVal = endMin !== null ? endMin : startMin + 60;
@@ -931,12 +936,12 @@
     grid.appendChild(body);
     setTimeout(() => {
       const dagEvs = getEventsForDay(viewDate);
-      const vroegste = dagEvs
-        .map(ev => parseTime(ev.startTime))
-        .filter(t => t !== null)
-        .reduce((min, t) => Math.min(min, t), 7 * 60);
-      body.scrollTop = Math.max(0, (vroegste / 60 - 0.5)) * 48;
-    }, 50);
+      const tijden = dagEvs.map(ev => parseTime(ev.startTime)).filter(t => t !== null && t >= 0);
+      const vroegste = tijden.length > 0
+        ? Math.max(6 * 60, Math.min(tijden.reduce((a,b) => Math.min(a,b)), 9 * 60))
+        : 7 * 60;
+      body.scrollTop = (vroegste / 60 - 0.5) * 48;
+    }, 80);
   }
 
   // ── LIST VIEW ────────────────────────────────
@@ -1263,10 +1268,17 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   }
 
+  // Converteer ISO datetime string naar lokale HH:MM
+  function localTime(isoStr) {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+  }
+
   function parseTime(t) {
     if (!t || typeof t !== "string" || !t.includes(":")) return null;
     const [h, m] = t.split(":").map(Number);
-    if (isNaN(h)) return null;
+    if (isNaN(h) || h < 0 || h > 23) return null;
     return h * 60 + (m || 0);
   }
 
@@ -2045,7 +2057,10 @@
     display: flex; border-bottom: 1px solid var(--border);
     background: var(--surface); flex-shrink: 0;
   }
-  .time-gutter { width: 36px; flex-shrink: 0; }
+  .time-gutter {
+    width: 36px; flex-shrink: 0;
+    background: var(--surface); z-index: 4;
+  }
   @media(min-width:500px) { .time-gutter { width: 52px; } }
   .week-day-header {
     flex: 1; text-align: center; padding: 8px 4px; cursor: pointer;
@@ -2061,8 +2076,12 @@
   }
   .wdh-name { font-size: .70rem; text-transform: uppercase; font-weight: 700; }
   .wdh-num  { font-size: 1.1rem; font-weight: 400; line-height: 1; margin-top: 2px; }
-  .week-body, .day-body { display: flex; flex: 1; overflow-y: auto; }
-  .time-col { width: 36px; flex-shrink: 0; display: flex; flex-direction: column; }
+  .week-body, .day-body { display: flex; flex: 1; overflow-y: auto; overflow-x: auto; position: relative; }
+  .time-col {
+    width: 36px; flex-shrink: 0; display: flex; flex-direction: column;
+    position: sticky; left: 0; background: var(--surface);
+    z-index: 3; border-right: 1px solid var(--border);
+  }
   @media(min-width:500px) { .time-col { width: 52px; } }
   .time-label {
     height: 48px; font-size: .70rem; color: var(--muted);
