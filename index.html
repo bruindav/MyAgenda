@@ -543,9 +543,10 @@
 
   // Controleer of dit account uitgenodigd is voor agenda's van anderen
   async function koppelGedeeldeAgendas(user) {
-    const email = user.email?.toLowerCase();
+    const email = (user.email || "").toLowerCase().trim();
     if (!email) return;
     // Zoek agenda's waar dit e-mailadres als invite staat maar uid nog niet in members
+    // Probeer zowel lowercase als origineel (voor bestaande data)
     const invQ = query(
       collection(db, "calendars"),
       where("invites", "array-contains", email)
@@ -824,7 +825,8 @@
         const pill = el("div", "ev-pill");
         pill.style.background = eventColor(ev);
         // Geen tijden in maandgrid — alleen icoon + titel
-        pill.textContent = eventIcon(ev) + " " + ev.title;
+        // Geen icoon in kleine maandcellen — meer ruimte voor tekst
+        pill.textContent = ev.title;
         pill.addEventListener("click", e => {
           e.stopPropagation();
           // Klik op event → open dagweergave voor die dag
@@ -888,7 +890,7 @@
       const adCol = el("div", "allday-col");
       getEventsForDay(d).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
         const bar = el("div", "allday-bar");
-        bar.textContent = eventIcon(ev) + " " + ev.title;
+        bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + ev.title + "</span>";
         bar.style.background = eventColor(ev);
         bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
         adCol.appendChild(bar);
@@ -939,7 +941,7 @@
     const adRowDay = el("div", "allday-row allday-row-day");
     getEventsForDay(viewDate).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
       const bar = el("div", "allday-bar");
-      bar.textContent = eventIcon(ev) + " " + ev.title;
+      bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + ev.title + "</span>";
       bar.style.background = eventColor(ev);
       bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
       adRowDay.appendChild(bar);
@@ -2129,18 +2131,21 @@
   .allday-row-day { padding: 4px 8px; }
   .allday-row-day .allday-bar { max-width: 100%; }
   .allday-bar {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 2px;
     color: #fff;
     border-radius: 3px;
     padding: 2px 5px;
     font-size: .72rem;
     cursor: pointer;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     transition: filter .1s;
   }
   .allday-bar:hover { filter: brightness(1.1); }
+  .adbar-icon  { font-size: .6em; flex-shrink: 0; line-height: 1; }
+  .adbar-title { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 
   /* ═══════════════════════════════════════════
      WEEK / DAG WEERGAVE
@@ -2244,7 +2249,7 @@
     transition: filter .1s;
   }
   .timed-pill:hover { filter: brightness(1.1); }
-  .tp-icon  { font-size: .75em; flex-shrink: 0; padding-top: 1px; }
+  .tp-icon  { font-size: .65em; flex-shrink: 0; padding-top: 1px; line-height: 1; }
   .tp-text  { display: flex; flex-direction: column; min-width: 0; font-size: .72rem; line-height: 1.2; }
   .tp-time  { font-size: .65rem; opacity: .85; white-space: nowrap; }
   .tp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
