@@ -927,9 +927,11 @@
 
   // Plaats een event als pill in een dag-kolom
   function placeInCol(col, ev) {
+    console.log('[place]', ev.title, 'allDay:', ev.allDay, 'startTime:', JSON.stringify(ev.startTime));
     if (ev.allDay) return; // hele-dag events: niet in tijdkolom
 
     const startMin = parseHM(ev.startTime);
+    console.log('[place]', ev.title, 'startMin:', startMin);
     if (startMin === null) return; // geen tijdinfo: overslaan
 
     const endMin   = parseHM(ev.endTime) ?? startMin + 60;
