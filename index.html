@@ -1233,7 +1233,8 @@
 
     updateTypeHint();
     toggleRepeatOptions();
-    $("ev-title").focus();
+    // Focus op modal zelf (niet op input) → toetsenbord blijft dicht op mobiel
+    $("modal").focus();
   }
 
   function showGcalDetail(ev) {
@@ -2704,7 +2705,7 @@
 
 <!-- Modal -->
 <div id="modal-overlay">
-  <div id="modal">
+  <div id="modal" tabindex="-1">
     <div id="modal-title-text">Nieuwe afspraak</div>
 
     <div class="form-row">
