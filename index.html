@@ -2017,10 +2017,11 @@
         `<div class="cleanup-info">` +
           `<span class="cleanup-naam">${cal.name || "(geen naam)"}</span>` +
           `<span class="cleanup-meta">${evCount} events · ${isOwner?"eigenaar":"lid"} · ` +
-          `invites: ${(cal.invites||[]).join(", ")||"geen"}</span>` +
+          `${cal.members.length} members · invites: ${(cal.invites||[]).join(", ")||"geen"}</span>` +
         `</div>` +
         (isOwner
-          ? `<button class="cleanup-del-btn" data-calid="${cal.id}" data-naam="${(cal.name||"").replace(/"/g,"")}" data-count="${evCount}">🗑</button>`
+          ? `<button class="cleanup-share-btn" data-calid="${cal.id}" title="Geef iemand toegang via uid" style="border:1px solid #1a73e8;background:none;color:#1a73e8;border-radius:6px;padding:4px 7px;cursor:pointer;font-size:.8rem;flex-shrink:0">👤+</button>` +
+            `<button class="cleanup-del-btn" data-calid="${cal.id}" data-naam="${(cal.name||"").replace(/"/g,"")}" data-count="${evCount}">🗑</button>`
           : "");
       list.appendChild(row);
     });
@@ -2034,6 +2035,35 @@
 
 Niet ongedaan te maken.`)) return;
         await verwijderAgendaMetEvents(btn.dataset.calid);
+        await openCleanupModal();
+      })
+    );
+
+    // 👤+ Geef toegang via uid
+    list.querySelectorAll(".cleanup-share-btn").forEach(btn =>
+      btn.addEventListener("click", async () => {
+        const uid = prompt("Voer het uid in van de persoon:\n(Firebase Console → Authentication → Users → kopieer User UID)");
+        if (!uid || uid.trim().length < 10) return;
+        const calId   = btn.dataset.calid;
+        const calData = _cleanupCals.find(c => c.id === calId);
+        if (!calData) return;
+        const trimUid = uid.trim();
+        if (calData.members.includes(trimUid)) {
+          showToast("Dit uid heeft al toegang", "info"); return;
+        }
+        $("cleanup-status").textContent = "Toegang verlenen...";
+        await updateDoc(doc(db, "calendars", calId), {
+          members: [...calData.members, trimUid]
+        });
+        const evs = _cleanupEvs.filter(e => e.calendarId === calId);
+        for (let i = 0; i < evs.length; i += 20) {
+          await Promise.all(evs.slice(i, i+20).map(ev => {
+            const em = ev.members || [];
+            if (!em.includes(trimUid))
+              return updateDoc(doc(db, "events", ev.id), { members: [...em, trimUid] });
+          }));
+        }
+        showToast("✅ Toegang verleend (" + evs.length + " events bijgewerkt). Laat persoon opnieuw inloggen.", "ok");
         await openCleanupModal();
       })
     );
@@ -2051,13 +2081,20 @@ Niet ongedaan te maken.`)) return;
   }
 
   async function verwijderZwevendeEvents() {
+    // Haal ALLE calendars op (niet alleen die van deze user)
+    // zodat we ook agenda-IDs van verwijderde agenda's detecteren
     const validIds = new Set(_cleanupCals.map(c => c.id));
-    const zwevend  = _cleanupEvs.filter(e => !validIds.has(e.calendarId));
-    if (zwevend.length === 0) { showToast("Geen zwevende events", "info"); return; }
-    if (!confirm(`${zwevend.length} zwevende events verwijderen?`)) return;
+    // Events zonder calendarId OF met een calendarId dat niet in validIds zit
+    const zwevend  = _cleanupEvs.filter(e => !e.calendarId || !validIds.has(e.calendarId));
+    if (zwevend.length === 0) { showToast("Geen zwevende events gevonden", "info"); return; }
+    $("cleanup-status").textContent = `${zwevend.length} zwevende events gevonden...`;
+    if (!confirm(`${zwevend.length} zwevende events verwijderen?
+
+Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     $("cleanup-status").textContent = "Verwijderen...";
     for (let i = 0; i < zwevend.length; i += 20) {
       await Promise.all(zwevend.slice(i, i+20).map(e => deleteDoc(doc(db, "events", e.id))));
+      $("cleanup-status").textContent = `Verwijderd: ${Math.min(i+20, zwevend.length)}/${zwevend.length}`;
     }
     showToast(`🧹 ${zwevend.length} zwevende events verwijderd`, "ok");
     await openCleanupModal();
