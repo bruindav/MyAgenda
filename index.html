@@ -254,6 +254,17 @@
     // Google Calendar sync knop
     $("btn-gcal-sync").addEventListener("click", startGcalSync);
 
+    // Opschonen
+    $("btn-cleanup").addEventListener("click", openCleanupModal);
+
+    // Cleanup modal
+    $("cleanup-overlay").addEventListener("click", e => {
+      if (e.target === $("cleanup-overlay")) closeCleanupModal();
+    });
+    $("btn-cleanup-sluit").addEventListener("click", closeCleanupModal);
+    $("btn-cleanup-zwevend").addEventListener("click", verwijderZwevendeEvents);
+    $("btn-cleanup-rooster").addEventListener("click", verwijderRoosterEvents);
+
     // Google import keuze-dialog
     $("gcal-keuze-overlay").addEventListener("click", e => {
       if (e.target === $("gcal-keuze-overlay")) closeGcalKeuzeDialog();
@@ -1953,6 +1964,121 @@
     return toISO(d);
   }
 
+  // ══════════════════════════════════════════════════════
+  // OPSCHOON MODULE
+  // ══════════════════════════════════════════════════════
+
+  let _cleanupCals = [];
+  let _cleanupEvs  = [];
+
+  async function openCleanupModal() {
+    $("cleanup-overlay").style.display = "flex";
+    $("cleanup-status").textContent = "Laden...";
+    $("cleanup-cal-list").innerHTML  = "";
+    $("cleanup-ev-info").textContent = "";
+
+    // Laad alle calendars en events
+    const calSnap = await getDocs(query(
+      collection(db, "calendars"),
+      where("members", "array-contains", currentUser.uid)
+    ));
+    _cleanupCals = calSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const evSnap = await getDocs(query(
+      collection(db, "events"),
+      where("members", "array-contains", currentUser.uid)
+    ));
+    _cleanupEvs = evSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    renderCleanup();
+  }
+
+  function renderCleanup() {
+    const list = $("cleanup-cal-list");
+    list.innerHTML = "";
+
+    // Zwevende events (geen geldig calendarId)
+    const validIds  = new Set(_cleanupCals.map(c => c.id));
+    const zwevend   = _cleanupEvs.filter(e => !validIds.has(e.calendarId));
+    const roosterEvs = _cleanupEvs.filter(e => e.rooster === true);
+
+    $("cleanup-status").textContent =
+      `${_cleanupCals.length} agenda's · ${_cleanupEvs.length} events`;
+    $("cleanup-ev-info").innerHTML =
+      `<span style="color:#e65100">${zwevend.length} zwevende events</span> (geen agenda) · ` +
+      `<span style="color:#1a73e8">${roosterEvs.length} rooster-events</span>`;
+
+    _cleanupCals.forEach(cal => {
+      const evCount = _cleanupEvs.filter(e => e.calendarId === cal.id).length;
+      const isOwner = cal.owner === currentUser?.uid;
+      const row = el("div", "cleanup-row");
+      row.innerHTML =
+        `<span class="cleanup-dot" style="background:${cal.color||'#aaa'}"></span>` +
+        `<div class="cleanup-info">` +
+          `<span class="cleanup-naam">${cal.name || "(geen naam)"}</span>` +
+          `<span class="cleanup-meta">${evCount} events · ${isOwner?"eigenaar":"lid"} · ` +
+          `invites: ${(cal.invites||[]).join(", ")||"geen"}</span>` +
+        `</div>` +
+        (isOwner
+          ? `<button class="cleanup-del-btn" data-calid="${cal.id}" data-naam="${(cal.name||"").replace(/"/g,"")}" data-count="${evCount}">🗑</button>`
+          : "");
+      list.appendChild(row);
+    });
+
+    // Knoppen events
+    list.querySelectorAll(".cleanup-del-btn").forEach(btn =>
+      btn.addEventListener("click", async () => {
+        const naam  = btn.dataset.naam;
+        const count = btn.dataset.count;
+        if (!confirm(`"${naam}" verwijderen inclusief ${count} events?
+
+Niet ongedaan te maken.`)) return;
+        await verwijderAgendaMetEvents(btn.dataset.calid);
+        await openCleanupModal();
+      })
+    );
+  }
+
+  async function verwijderAgendaMetEvents(calId) {
+    $("cleanup-status").textContent = "Bezig met verwijderen...";
+    const toDelete = _cleanupEvs.filter(e => e.calendarId === calId);
+    // Verwijder in batches van 20
+    for (let i = 0; i < toDelete.length; i += 20) {
+      await Promise.all(toDelete.slice(i, i+20).map(e => deleteDoc(doc(db, "events", e.id))));
+    }
+    await deleteDoc(doc(db, "calendars", calId));
+    showToast(`🗑 Agenda verwijderd (${toDelete.length} events)`, "warn");
+  }
+
+  async function verwijderZwevendeEvents() {
+    const validIds = new Set(_cleanupCals.map(c => c.id));
+    const zwevend  = _cleanupEvs.filter(e => !validIds.has(e.calendarId));
+    if (zwevend.length === 0) { showToast("Geen zwevende events", "info"); return; }
+    if (!confirm(`${zwevend.length} zwevende events verwijderen?`)) return;
+    $("cleanup-status").textContent = "Verwijderen...";
+    for (let i = 0; i < zwevend.length; i += 20) {
+      await Promise.all(zwevend.slice(i, i+20).map(e => deleteDoc(doc(db, "events", e.id))));
+    }
+    showToast(`🧹 ${zwevend.length} zwevende events verwijderd`, "ok");
+    await openCleanupModal();
+  }
+
+  async function verwijderRoosterEvents() {
+    const roosterEvs = _cleanupEvs.filter(e => e.rooster === true);
+    if (roosterEvs.length === 0) { showToast("Geen rooster-events", "info"); return; }
+    if (!confirm(`${roosterEvs.length} rooster-events verwijderen? (Rooster zelf blijft bestaan)`)) return;
+    for (let i = 0; i < roosterEvs.length; i += 20) {
+      await Promise.all(roosterEvs.slice(i, i+20).map(e => deleteDoc(doc(db, "events", e.id))));
+    }
+    showToast(`🧹 ${roosterEvs.length} rooster-events verwijderd`, "ok");
+    await openCleanupModal();
+  }
+
+  function closeCleanupModal() {
+    $("cleanup-overlay").style.display = "none";
+  }
+
+
 </script>
 
 <style>
@@ -2678,6 +2804,46 @@
   }
   #groep-naam:focus { outline: none; border-color: var(--primary); }
 
+
+  /* ── Cleanup modal ──────────────────────────── */
+  #cleanup-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #cleanup-modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 480px; padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+    animation: popIn .18s ease; max-height: 85dvh; overflow-y: auto;
+  }
+  .cleanup-title  { font-size: 1.05rem; font-weight: 700; }
+  #cleanup-status { font-size: .82rem; color: var(--muted); }
+  #cleanup-ev-info{ font-size: .80rem; }
+  #cleanup-cal-list { display: flex; flex-direction: column; gap: 6px; }
+  .cleanup-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg);
+  }
+  .cleanup-dot  { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .cleanup-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .cleanup-naam { font-size: .88rem; font-weight: 600; }
+  .cleanup-meta { font-size: .74rem; color: var(--muted); }
+  .cleanup-del-btn {
+    border: 1px solid #f5c6c2; background: none; color: #d93025;
+    border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: .85rem;
+    flex-shrink: 0; transition: background .1s;
+  }
+  .cleanup-del-btn:hover { background: #fce8e6; }
+  .cleanup-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-orange {
+    background: none; border: 1px solid #e65100; color: #e65100;
+    padding: 7px 12px; border-radius: 8px; font-size: .82rem; cursor: pointer;
+    transition: background .1s; white-space: nowrap;
+  }
+  .btn-orange:hover { background: #fff3e0; }
   /* ── Toast ──────────────────────────────────── */
   .toast {
     position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -2744,6 +2910,11 @@
       <div class="sidebar-label" style="margin-top:12px">Google Agenda</div>
       <button id="btn-gcal-sync">📆 Importeren uit Google</button>
       <div id="gcal-status"></div>
+
+      <div class="sidebar-label" style="margin-top:12px">Beheer</div>
+      <button id="btn-cleanup" style="margin-top:4px;border:1px solid #e65100;background:none;cursor:pointer;font-size:.82rem;color:#e65100;padding:6px 10px;border-radius:8px;display:flex;align-items:center;gap:6px;transition:background .15s;width:100%">
+        🧹 Opschonen
+      </button>
     </div>
 
     <!-- Cal area -->
@@ -2904,6 +3075,50 @@
   </div>
 </div>
 
+
+<!-- Cleanup Modal -->
+<div id="cleanup-overlay">
+  <div id="cleanup-modal">
+    <div class="cleanup-title">🧹 Opschonen</div>
+    <div id="cleanup-status">Laden...</div>
+    <div id="cleanup-ev-info"></div>
+
+    <div class="cleanup-actions">
+      <button id="btn-cleanup-zwevend" class="btn-orange">🗑 Zwevende events</button>
+      <button id="btn-cleanup-rooster" class="btn-orange">🗑 Rooster-events</button>
+    </div>
+
+    <div style="font-size:.78rem;color:var(--muted)">Agenda's (klik 🗑 om te verwijderen incl. alle events):</div>
+    <div id="cleanup-cal-list"></div>
+
+    <div class="modal-actions">
+      <button id="btn-cleanup-sluit" class="btn-ghost">Sluiten</button>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- Cleanup Modal -->
+<div id="cleanup-overlay">
+  <div id="cleanup-modal">
+    <div class="cleanup-title">🧹 Opschonen</div>
+    <div id="cleanup-status">Laden...</div>
+    <div id="cleanup-ev-info"></div>
+
+    <div class="cleanup-actions">
+      <button id="btn-cleanup-zwevend" class="btn-orange">🗑 Zwevende events</button>
+      <button id="btn-cleanup-rooster" class="btn-orange">🗑 Rooster-events</button>
+    </div>
+
+    <div style="font-size:.78rem;color:var(--muted)">Agenda's (klik 🗑 om te verwijderen incl. alle events):</div>
+    <div id="cleanup-cal-list"></div>
+
+    <div class="modal-actions">
+      <button id="btn-cleanup-sluit" class="btn-ghost">Sluiten</button>
+    </div>
+  </div>
+</div>
 
 <!-- Google Agenda keuze-dialog -->
 <div id="gcal-keuze-overlay">
