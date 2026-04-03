@@ -264,6 +264,7 @@
     $("btn-cleanup-sluit").addEventListener("click", closeCleanupModal);
     $("btn-cleanup-zwevend").addEventListener("click", verwijderZwevendeEvents);
     $("btn-cleanup-rooster").addEventListener("click", verwijderRoosterEvents);
+    $("btn-cleanup-alles").addEventListener("click", wisAlles);
 
     // Google import keuze-dialog
     $("gcal-keuze-overlay").addEventListener("click", e => {
@@ -2063,7 +2064,19 @@ Niet ongedaan te maken.`)) return;
               return updateDoc(doc(db, "events", ev.id), { members: [...em, trimUid] });
           }));
         }
-        showToast("✅ Toegang verleend (" + evs.length + " events bijgewerkt). Laat persoon opnieuw inloggen.", "ok");
+        $("cleanup-status").textContent = "Events bijwerken...";
+        let bijgewerkt = 0;
+        for (let i = 0; i < evs.length; i += 20) {
+          await Promise.all(evs.slice(i, i+20).map(async ev => {
+            const em = ev.members || [];
+            if (!em.includes(trimUid)) {
+              await updateDoc(doc(db, "events", ev.id), { members: [...em, trimUid] });
+              bijgewerkt++;
+            }
+          }));
+          $("cleanup-status").textContent = "Events: " + Math.min(i+20, evs.length) + "/" + evs.length;
+        }
+        showToast("✅ Klaar! " + bijgewerkt + "/" + evs.length + " events bijgewerkt. Erwin logt opnieuw in.", "ok");
         await openCleanupModal();
       })
     );
@@ -2078,6 +2091,52 @@ Niet ongedaan te maken.`)) return;
     }
     await deleteDoc(doc(db, "calendars", calId));
     showToast(`🗑 Agenda verwijderd (${toDelete.length} events)`, "warn");
+  }
+
+
+  async function wisAlles() {
+    if (!confirm("ALLES verwijderen?\n\n- Alle events\n- Alle agenda's\n- Alle roosters\n\nDit kan NIET ongedaan worden gemaakt.")) return;
+    if (!confirm("Weet je het zeker? Er is geen weg terug.")) return;
+
+    $("cleanup-status").textContent = "Bezig...";
+    let totaal = 0;
+
+    // Verwijder alle events
+    const evSnap = await getDocs(query(
+      collection(db, "events"),
+      where("members", "array-contains", currentUser.uid)
+    ));
+    for (let i = 0; i < evSnap.docs.length; i += 20) {
+      await Promise.all(evSnap.docs.slice(i, i+20).map(d => deleteDoc(doc(db, "events", d.id))));
+      $("cleanup-status").textContent = "Events: " + Math.min(i+20, evSnap.docs.length) + "/" + evSnap.docs.length;
+      totaal += Math.min(20, evSnap.docs.length - i);
+    }
+
+    // Verwijder alle calendars
+    const calSnap = await getDocs(query(
+      collection(db, "calendars"),
+      where("members", "array-contains", currentUser.uid)
+    ));
+    for (const d of calSnap.docs) {
+      await deleteDoc(doc(db, "calendars", d.id));
+      totaal++;
+    }
+
+    // Verwijder rooster
+    try {
+      await deleteDoc(doc(db, "roosters", currentUser.uid));
+      totaal++;
+    } catch(e) {}
+
+    // Verwijder invite_requests
+    try {
+      const email = currentUser.email?.toLowerCase();
+      if (email) await deleteDoc(doc(db, "invite_requests", email));
+    } catch(e) {}
+
+    $("cleanup-status").textContent = "Klaar! " + totaal + " items verwijderd.";
+    showToast("✅ Database geleegd. Pagina wordt herladen...", "ok");
+    setTimeout(() => location.reload(), 2000);
   }
 
   async function verwijderZwevendeEvents() {
@@ -3123,6 +3182,12 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div class="cleanup-actions">
       <button id="btn-cleanup-zwevend" class="btn-orange">🗑 Zwevende events</button>
       <button id="btn-cleanup-rooster" class="btn-orange">🗑 Rooster-events</button>
+    </div>
+    <div style="margin-top:8px;padding:10px;background:#fce8e6;border-radius:8px;border:1px solid #f5c6c2">
+      <div style="font-size:.82rem;font-weight:700;color:#d93025;margin-bottom:6px">⚠️ Gevaarlijk</div>
+      <button id="btn-cleanup-alles" style="background:#d93025;color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:.85rem;width:100%">
+        🗑 Wis ALLES (events + agenda's + roosters)
+      </button>
     </div>
 
     <div style="font-size:.78rem;color:var(--muted)">Agenda's (klik 🗑 om te verwijderen incl. alle events):</div>
