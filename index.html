@@ -2108,38 +2108,63 @@ Niet ongedaan te maken.`)) return;
 
 
   async function wisAlles() {
-    if (!confirm("ALLES verwijderen?\n\n- Alle events\n- Alle agenda's\n- Alle roosters\n\nDit kan NIET ongedaan worden gemaakt.")) return;
+    if (!confirm("ALLES verwijderen?\n\n- Alle events (ook van andere gebruikers)\n- Alle agenda's\n- Alle roosters\n\nDit kan NIET ongedaan worden gemaakt.")) return;
     if (!confirm("Weet je het zeker? Er is geen weg terug.")) return;
 
     $("cleanup-status").textContent = "Bezig...";
     let totaal = 0;
 
-    // Verwijder alle events
-    const evSnap = await getDocs(query(
+    // Verwijder ALLE events van ALLE agenda's die bij jou horen
+    // Stap 1: haal alle calendar IDs op (ook die je bezit maar waar anderen lid van zijn)
+    const calSnap = await getDocs(query(
+      collection(db, "calendars"),
+      where("owner", "==", currentUser.uid)
+    ));
+    const calIds = calSnap.docs.map(d => d.id);
+
+    // Stap 2: verwijder alle events per agenda-ID (ongeacht members)
+    // Doe dit via een ruimere query op calendarId
+    for (const calId of calIds) {
+      const evSnap = await getDocs(query(
+        collection(db, "events"),
+        where("calendarId", "==", calId)
+      ));
+      for (let i = 0; i < evSnap.docs.length; i += 20) {
+        await Promise.all(evSnap.docs.slice(i, i+20).map(d => deleteDoc(doc(db, "events", d.id))));
+        totaal += evSnap.docs.slice(i, i+20).length;
+        $("cleanup-status").textContent = "Events verwijderd: " + totaal;
+      }
+    }
+
+    // Stap 3: verwijder ook events waar jij in members staat
+    // (voor het geval ze niet aan een calendarId gekoppeld zijn)
+    const myEvSnap = await getDocs(query(
       collection(db, "events"),
       where("members", "array-contains", currentUser.uid)
     ));
-    for (let i = 0; i < evSnap.docs.length; i += 20) {
-      await Promise.all(evSnap.docs.slice(i, i+20).map(d => deleteDoc(doc(db, "events", d.id))));
-      $("cleanup-status").textContent = "Events: " + Math.min(i+20, evSnap.docs.length) + "/" + evSnap.docs.length;
-      totaal += Math.min(20, evSnap.docs.length - i);
+    for (let i = 0; i < myEvSnap.docs.length; i += 20) {
+      await Promise.all(myEvSnap.docs.slice(i, i+20).map(d => deleteDoc(doc(db, "events", d.id)).catch(()=>{})));
+      totaal += myEvSnap.docs.slice(i, i+20).length;
+      $("cleanup-status").textContent = "Events verwijderd: " + totaal;
     }
 
-    // Verwijder alle calendars
-    const calSnap = await getDocs(query(
-      collection(db, "calendars"),
-      where("members", "array-contains", currentUser.uid)
-    ));
+    // Stap 4: verwijder alle agenda's waar jij eigenaar van bent
     for (const d of calSnap.docs) {
       await deleteDoc(doc(db, "calendars", d.id));
       totaal++;
     }
+    // Ook agenda's waar je lid van bent
+    const lidSnap = await getDocs(query(
+      collection(db, "calendars"),
+      where("members", "array-contains", currentUser.uid)
+    ));
+    for (const d of lidSnap.docs) {
+      await deleteDoc(doc(db, "calendars", d.id)).catch(()=>{});
+      totaal++;
+    }
 
     // Verwijder rooster
-    try {
-      await deleteDoc(doc(db, "roosters", currentUser.uid));
-      totaal++;
-    } catch(e) {}
+    try { await deleteDoc(doc(db, "roosters", currentUser.uid)); totaal++; } catch(e) {}
 
     // Verwijder invite_requests
     try {
