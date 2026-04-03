@@ -192,7 +192,7 @@
     $("btn-detail-verwijder").addEventListener("click", async () => {
       const ev = $("detail-overlay")._ev;
       if (!ev || !ev.id) return;
-      if (!confirm(""" + ev.title + "" verwijderen?")) return;
+      if (!confirm(ev.title + " verwijderen?")) return;
       await deleteDoc(doc(db, "events", ev.id));
       closeDetail();
     });
