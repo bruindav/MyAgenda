@@ -879,13 +879,8 @@
 
   function placeEventInCol(col, ev) {
     if (ev.allDay) return;
-    // Forceer string parsing - zorg dat we altijd HH:MM hebben
-    const stRaw = (ev.startTime || "").toString().trim();
-    const etRaw = (ev.endTime   || "").toString().trim();
-    const startMin = parseTime(stRaw);
-    const endMin   = parseTime(etRaw);
-    // Debug (tijdelijk)
-    if (ev.type === "training") console.log("[training]", ev.title, "startTime:", JSON.stringify(stRaw), "→", startMin, "min");
+    const startMin = parseTime((ev.startTime || "").toString().trim());
+    const endMin   = parseTime((ev.endTime   || "").toString().trim());
     // Als geen geldige tijd: sla over (wordt als hele-dag getoond)
     if (startMin === null) return;
     const endMinVal = endMin !== null ? endMin : startMin + 60;
@@ -1934,7 +1929,7 @@
     touch-action: pan-y;   /* sta verticaal scrollen toe, blokkeer horizontaal niet */
     user-select: none;     /* voorkom tekst-selectie bij swipen */
   }
-  #calendar-grid { flex: 1; overflow-y: auto; }
+  #calendar-grid { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 
   /* ── FAB ────────────────────────────────────── */
   #btn-new {
@@ -2052,7 +2047,7 @@
   @media(min-width:480px) { .ev-more { font-size: .73rem; } }
 
   /* ── Week / Day grid ────────────────────────── */
-  .grid-week, .grid-day { display: flex; flex-direction: column; height: 100%; }
+  .grid-week, .grid-day { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   .week-header-row {
     display: flex; border-bottom: 1px solid var(--border);
     background: var(--surface); flex-shrink: 0;
@@ -2076,7 +2071,7 @@
   }
   .wdh-name { font-size: .70rem; text-transform: uppercase; font-weight: 700; }
   .wdh-num  { font-size: 1.1rem; font-weight: 400; line-height: 1; margin-top: 2px; }
-  .week-body, .day-body { display: flex; flex: 1; overflow-y: auto; overflow-x: auto; position: relative; }
+  .week-body, .day-body { display: flex; flex: 1; min-height: 0; overflow-y: auto; }
   .time-col {
     width: 36px; flex-shrink: 0; display: flex; flex-direction: column;
     position: sticky; left: 0; background: var(--surface);
