@@ -68,8 +68,6 @@
   let currentUser   = null;
   let events        = [];
   let gcalEvents    = [];       // events uit Google Agenda (read-only)
-  let hiddenCals    = new Set(); // agenda-IDs die verborgen zijn
-  let calGroups     = {};        // { groupName: [calId, calId, ...] } samenvoegen
   let calendars     = [];
   let today         = new Date();
   let viewDate      = new Date();
@@ -244,23 +242,6 @@
         $("ev-end-date").value = start;
       }
     });
-
-    // Uitnodigingen modal
-    $("uitnodig-overlay").addEventListener("click", e => {
-      if (e.target === $("uitnodig-overlay")) closeUitnodigingModal();
-    });
-    $("btn-uitnodig-sluit").addEventListener("click",   closeUitnodigingModal);
-    $("btn-uitnodig-stuur").addEventListener("click",   verstuurUitnodiging);
-    $("uitnodig-nieuw").addEventListener("keydown", e => {
-      if (e.key === "Enter") verstuurUitnodiging();
-    });
-
-    // Groepen modal
-    $("groep-overlay").addEventListener("click", e => {
-      if (e.target === $("groep-overlay")) closeGroepModal();
-    });
-    $("btn-groep-sluit").addEventListener("click", closeGroepModal);
-    $("btn-groep-sla").addEventListener("click",   slaGroepOp);
 
     // all-day toggle
     $("ev-allday").addEventListener("change", () => {
@@ -440,8 +421,8 @@
               allDay:       !!ev.start?.date,
               startDate,
               endDate,
-              startTime:    ev.start?.dateTime ? localTime(ev.start.dateTime) : "",
-              endTime:      ev.end?.dateTime   ? localTime(ev.end.dateTime)   : "",
+              startTime:    ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
+              endTime:      ev.end?.dateTime   ? ev.end.dateTime.slice(11, 16)   : "",
               description:  ev.description || "",
               location:     ev.location || "",
               calendarId:   localCal.id,
@@ -532,133 +513,19 @@
   }
 
   // Nodig partner uit voor een agenda via e-mailadres
-  // ── Uitnodigingen beheer-modal ───────────────────────
-  let uitnodigCalId = null;
-
-  function openUitnodigingModal(calId, calNaam) {
-    uitnodigCalId = calId;
-    const calData = calendars.find(c => c.id === calId);
-    const invites = calData?.invites || [];
-    $("uitnodig-modal-titel").textContent = `👥 Uitnodigingen — ${calNaam}`;
-    renderUitnodigLijst(invites);
-    $("uitnodig-overlay").style.display = "flex";
-  }
-
-  function renderUitnodigLijst(invites) {
-    const lst = $("uitnodig-lijst");
-    lst.innerHTML = "";
-    if (invites.length === 0) {
-      lst.innerHTML = `<div style="color:var(--muted);font-size:.85rem;padding:8px">Nog niemand uitgenodigd.</div>`;
-    } else {
-      invites.forEach(email => {
-        const row = el("div", "uitnodig-row");
-        row.innerHTML = `
-          <span class="uitnodig-email">${email}</span>
-          <button class="uitnodig-revoke" data-email="${email}" title="Intrekken">✕ Intrekken</button>
-        `;
-        lst.appendChild(row);
-      });
-      lst.querySelectorAll(".uitnodig-revoke").forEach(btn =>
-        btn.addEventListener("click", async () => {
-          await intrekkenUitnodiging(uitnodigCalId, btn.dataset.email);
-        })
-      );
-    }
-  }
-
-  function closeUitnodigingModal() {
-    $("uitnodig-overlay").style.display = "none";
-  }
-
-  async function verstuurUitnodiging() {
-    const email = $("uitnodig-nieuw").value.trim().toLowerCase();
-    if (!email) return;
-    const calData = calendars.find(c => c.id === uitnodigCalId);
-    if (!calData) return;
-    const huidig = calData.invites || [];
-    if (huidig.includes(email)) {
-      showToast("⚠️ Al uitgenodigd", "warn"); return;
-    }
-    await updateDoc(doc(db, "calendars", uitnodigCalId), {
-      invites: [...huidig, email]
-    });
-    $("uitnodig-nieuw").value = "";
-    showToast(`✉️ Uitgenodigd: ${email}`, "ok");
-    // update local state
-    const idx = calendars.findIndex(c => c.id === uitnodigCalId);
-    if (idx >= 0) calendars[idx] = { ...calendars[idx], invites: [...huidig, email] };
-    renderUitnodigLijst([...huidig, email]);
-  }
-
-  async function intrekkenUitnodiging(calId, email) {
-    if (!confirm(`Uitnodiging voor ${email} intrekken?`)) return;
-    const calData = calendars.find(c => c.id === calId);
-    if (!calData) return;
-    const nieuw = (calData.invites || []).filter(e => e !== email);
-    await updateDoc(doc(db, "calendars", calId), { invites: nieuw });
-    // update local state
-    const idx = calendars.findIndex(c => c.id === calId);
-    if (idx >= 0) calendars[idx] = { ...calendars[idx], invites: nieuw };
-    showToast(`🚫 Uitnodiging ingetrokken voor ${email}`, "warn");
-    renderUitnodigLijst(nieuw);
-  }
-
-  // ── Groepen modal ─────────────────────────────────────
-  let groepCalId = null;
-
-  function openGroepModal(calId, calNaam) {
-    groepCalId = calId;
-    $("groep-modal-titel").textContent = `⊕ Samenvoegen met — ${calNaam}`;
-    // Bouw lijst van andere agenda's
-    const andere = calendars.filter(c => c.id !== calId);
-    const lst    = $("groep-cal-lijst");
-    lst.innerHTML = "";
-    // Zoek bestaande groep
-    const bestaandeGroep = Object.entries(calGroups).find(([,ids]) => ids.includes(calId));
-    andere.forEach(cal => {
-      const inGroep = bestaandeGroep && bestaandeGroep[1].includes(cal.id);
-      const row = el("div", "groep-cal-row");
-      row.innerHTML = `
-        <input type="checkbox" id="gr-${cal.id}" ${inGroep ? "checked" : ""} data-calid="${cal.id}">
-        <span style="width:10px;height:10px;border-radius:50%;background:${cal.color};display:inline-block;flex-shrink:0"></span>
-        <label for="gr-${cal.id}" style="cursor:pointer;flex:1">${cal.name}</label>
-      `;
-      lst.appendChild(row);
-    });
-    if (andere.length === 0) {
-      lst.innerHTML = `<div style="color:var(--muted);font-size:.85rem">Geen andere agenda's beschikbaar.</div>`;
-    }
-    $("groep-overlay").style.display = "flex";
-  }
-
-  function closeGroepModal() {
-    $("groep-overlay").style.display = "none";
-  }
-
-  function slaGroepOp() {
-    const groepNaam = $("groep-naam").value.trim() || calendars.find(c=>c.id===groepCalId)?.name || "Groep";
-    const geselecteerd = [...$("groep-cal-lijst").querySelectorAll("input[type=checkbox]:checked")]
-      .map(cb => cb.dataset.calid);
-    if (geselecteerd.length === 0) {
-      // Verwijder eventuele bestaande groep met deze agenda
-      for (const [naam, ids] of Object.entries(calGroups)) {
-        if (ids.includes(groepCalId)) delete calGroups[naam];
-      }
-    } else {
-      // Verwijder oude groep eerst
-      for (const [naam, ids] of Object.entries(calGroups)) {
-        if (ids.includes(groepCalId)) delete calGroups[naam];
-      }
-      calGroups[groepNaam] = [groepCalId, ...geselecteerd];
-    }
-    closeGroepModal();
-    renderSidebar(); renderAll();
-    showToast("✅ Groep opgeslagen", "ok");
-  }
-
   async function uitnodigPartner(calId, email) {
-    // Behouden voor achterwaartse compatibiliteit — opent nu de modal
-    openUitnodigingModal(calId, calendars.find(c=>c.id===calId)?.name || "");
+    const emailLower = email.toLowerCase().trim();
+    if (!emailLower) return;
+    const calData = calendars.find(c => c.id === calId);
+    if (!calData) return;
+    const huidig  = calData.invites || [];
+    if (huidig.includes(emailLower)) {
+      showToast("⚠️ Dit e-mailadres is al uitgenodigd", "warn"); return;
+    }
+    await updateDoc(doc(db, "calendars", calId), {
+      invites: [...huidig, emailLower]
+    });
+    showToast(`✉️ Uitnodiging verstuurd naar ${emailLower}`, "ok");
   }
 
   async function verwijderAgenda(calId) {
@@ -713,10 +580,7 @@
 
   // ── Alle events (eigen + gcal) gecombineerd ──
   function allEvents() {
-    return [...events, ...gcalEvents].filter(ev => {
-      if (!ev.calendarId) return true;
-      return !hiddenCals.has(ev.calendarId);
-    });
+    return [...events, ...gcalEvents];
   }
 
   // ── Event kleur & icoon ──────────────────────
@@ -724,13 +588,6 @@
     if (ev.gcal) return "#34a853";
     const type = EVENT_TYPES[ev.type];
     if (type && type.color) return type.color;
-    // Check of agenda in een groep zit → gebruik groepskleur (eerste agenda in groep)
-    for (const [, ids] of Object.entries(calGroups)) {
-      if (ids.includes(ev.calendarId)) {
-        const firstCal = calendars.find(c => c.id === ids[0]);
-        return firstCal?.color || "#4285f4";
-      }
-    }
     const cal = getCalendar(ev.calendarId);
     return cal?.color || "#4285f4";
   }
@@ -750,14 +607,8 @@
     const first    = new Date(year, month, 1);
     const startDay = (first.getDay() + 6) % 7;
 
-    const dagNamen = [
-      ["Ma","Maandag"], ["Di","Dinsdag"], ["Wo","Woensdag"],
-      ["Do","Donderdag"], ["Vr","Vrijdag"], ["Za","Zaterdag"], ["Zo","Zondag"]
-    ];
-    dagNamen.forEach(([kort, lang]) => {
-      const h = el("div", "grid-header");
-      h.innerHTML = `<span class="gh-kort">${kort}</span><span class="gh-lang">${lang}</span>`;
-      grid.appendChild(h);
+    ["Ma","Di","Wo","Do","Vr","Za","Zo"].forEach(d => {
+      grid.appendChild(el("div", "grid-header", d));
     });
 
     for (let i = 0; i < startDay; i++)
@@ -777,12 +628,7 @@
       alldayEvs.slice(0, 2).forEach(ev => {
         const bar = el("div", "ev-allday-bar");
         bar.style.background = eventColor(ev);
-        if (ev.type === "training" && ev.title.includes(" — ")) {
-          const [prefix, naam] = ev.title.split(" — ");
-          bar.innerHTML = `<span style="font-size:.9em">${eventIcon(ev)}</span> <span style="display:inline-flex;flex-direction:column;line-height:1.2"><span>${prefix}</span><span style="font-weight:400;opacity:.85">${naam}</span></span>`;
-        } else {
-          bar.textContent = `${eventIcon(ev)} ${ev.title}`;
-        }
+        bar.textContent = `${eventIcon(ev)} ${ev.title}`;
         bar.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
         cell.appendChild(bar);
       });
@@ -794,12 +640,7 @@
       timedEvs.slice(0, 2).forEach(ev => {
         const pill = el("div", "ev-pill");
         pill.style.background = eventColor(ev);
-        if (ev.type === "training" && ev.title.includes(" — ")) {
-          const [prefix, naam] = ev.title.split(" — ");
-          pill.innerHTML = `${eventIcon(ev)} <span style="display:inline-flex;flex-direction:column;line-height:1.1"><span>${prefix}</span><span style="font-weight:400;font-size:.9em;opacity:.85">${naam}</span></span>`;
-        } else {
-          pill.textContent = `${eventIcon(ev)} ${ev.title}`;
-        }
+        pill.textContent = `${eventIcon(ev)} ${ev.title}`;
         if (ev.gcal) pill.classList.add("ev-pill-gcal");
         pill.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
         cell.appendChild(pill);
@@ -863,47 +704,22 @@
       body.appendChild(dc);
     });
     grid.appendChild(body);
-    setTimeout(() => {
-      // Zoek vroegste event, maar nooit voor 6:00 en nooit na 9:00 scrollen
-      const dagEvents = Array.from({ length: 7 }, (_, i) => {
-        const d2 = new Date(mon); d2.setDate(d2.getDate() + i);
-        return getEventsForDay(d2);
-      }).flat();
-      const tijden = dagEvents.map(ev => parseTime(ev.startTime)).filter(t => t !== null && t >= 0);
-      const vroegste = tijden.length > 0
-        ? Math.max(6 * 60, Math.min(tijden.reduce((a,b) => Math.min(a,b)), 9 * 60))
-        : 7 * 60;
-      body.scrollTop = (vroegste / 60 - 0.5) * 48;
-    }, 80);
+    setTimeout(() => { body.scrollTop = 8 * 48; }, 50);
   }
 
   function placeEventInCol(col, ev) {
     if (ev.allDay) return;
-    const startMin = parseTime((ev.startTime || "").toString().trim());
-    const endMin   = parseTime((ev.endTime   || "").toString().trim());
-    // Als geen geldige tijd: sla over (wordt als hele-dag getoond)
-    if (startMin === null) return;
-    const endMinVal = endMin !== null ? endMin : startMin + 60;
-    const top    = (startMin / 60) * 48;
-    const height = Math.max(((endMinVal - startMin) / 60) * 48, 24);
+    const start  = ev.startTime ? parseTime(ev.startTime) : 0;
+    const end    = ev.endTime   ? parseTime(ev.endTime)   : start + 60;
+    const top    = (start / 60) * 48;
+    const height = Math.max(((end - start) / 60) * 48, 22);
     const color  = eventColor(ev);
     const icon   = eventIcon(ev);
     const pill   = el("div", "week-ev-pill");
     pill.style.top    = top + "px";
     pill.style.height = height + "px";
     pill.style.background = color;
-    // Training: naam onder "Training"
-    if (ev.type === "training" && ev.title.includes(" — ")) {
-      const [prefix, naam] = ev.title.split(" — ");
-      pill.innerHTML = `<span class="ev-icon" style="font-size:.7em">${icon}</span>`
-        + `<span style="display:flex;flex-direction:column;line-height:1.15;font-size:.72rem;min-width:0">`
-        + `<span style="font-weight:600">${prefix}</span>`
-        + `<span style="opacity:.85;font-size:.9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${naam}</span>`
-        + `</span>`;
-    } else {
-      pill.innerHTML = `<span class="ev-icon" style="font-size:.75em">${icon}</span>`
-        + `<span style="font-size:.73rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ev.title}</span>`;
-    }
+    pill.innerHTML = `<span class="ev-icon">${icon}</span> ${ev.title}`;
     pill.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
     col.appendChild(pill);
   }
@@ -929,14 +745,7 @@
     getEventsForDay(viewDate).forEach(ev => placeEventInCol(dc, ev));
     body.appendChild(dc);
     grid.appendChild(body);
-    setTimeout(() => {
-      const dagEvs = getEventsForDay(viewDate);
-      const tijden = dagEvs.map(ev => parseTime(ev.startTime)).filter(t => t !== null && t >= 0);
-      const vroegste = tijden.length > 0
-        ? Math.max(6 * 60, Math.min(tijden.reduce((a,b) => Math.min(a,b)), 9 * 60))
-        : 7 * 60;
-      body.scrollTop = (vroegste / 60 - 0.5) * 48;
-    }, 80);
+    setTimeout(() => { body.scrollTop = 8 * 48; }, 50);
   }
 
   // ── LIST VIEW ────────────────────────────────
@@ -984,86 +793,38 @@
     list.innerHTML = "";
     calendars.forEach(cal => {
       const isOwner = cal.owner === currentUser?.uid;
-      const isHidden = hiddenCals.has(cal.id);
-      const item = el("div", "cal-item" + (isHidden ? " cal-hidden" : ""));
+      const item    = el("div", "cal-item");
       item.innerHTML = `
-        <input type="checkbox" class="cal-toggle" data-calid="${cal.id}"
-          ${isHidden ? "" : "checked"} title="Tonen/verbergen">
-        <span class="cal-dot" style="background:${cal.color};opacity:${isHidden?0.4:1}"></span>
-        <span class="cal-name" style="opacity:${isHidden?0.4:1}">${cal.name}</span>
+        <span class="cal-dot" style="background:${cal.color}"></span>
+        <span class="cal-name">${cal.name}</span>
+        ${cal.invites?.length ? `<span class="cal-shared-badge" title="${cal.invites.join(', ')}">👥</span>` : ""}
         <span class="cal-item-actions">
-          ${isOwner ? `<button class="cal-share-btn" title="Uitnodigingen" data-calid="${cal.id}" data-calname="${cal.name}">👥</button>` : ""}
-          <button class="cal-group-btn" title="Samenvoegen" data-calid="${cal.id}" data-calname="${cal.name}">⊕</button>
-          ${isOwner ? `<button class="cal-del-btn" title="Verwijderen" data-calid="${cal.id}" data-calname="${cal.name}">🗑</button>` : ""}
+          ${isOwner ? `<button class="cal-share-btn" title="Uitnodigen" data-calid="${cal.id}">👥</button>` : ""}
+          ${isOwner ? `<button class="cal-del-btn"   title="Verwijderen" data-calid="${cal.id}" data-calname="${cal.name}">🗑</button>` : ""}
         </span>
       `;
       list.appendChild(item);
     });
-
-    // Toggle zichtbaarheid
-    list.querySelectorAll(".cal-toggle").forEach(cb =>
-      cb.addEventListener("change", e => {
-        const id = e.target.dataset.calid;
-        if (e.target.checked) hiddenCals.delete(id);
-        else hiddenCals.add(id);
-        renderSidebar(); renderAll();
-      })
-    );
-
-    // Uitnodigingen beheren
+    // Deelknoppen
     list.querySelectorAll(".cal-share-btn").forEach(btn =>
       btn.addEventListener("click", e => {
         e.stopPropagation();
-        openUitnodigingModal(btn.dataset.calid, btn.dataset.calname);
+        const email = prompt("E-mailadres om mee te delen:");
+        if (email) uitnodigPartner(btn.dataset.calid, email);
       })
     );
-
-    // Samenvoegen
-    list.querySelectorAll(".cal-group-btn").forEach(btn =>
-      btn.addEventListener("click", e => {
-        e.stopPropagation();
-        openGroepModal(btn.dataset.calid, btn.dataset.calname);
-      })
-    );
-
     // Verwijderknoppen
     list.querySelectorAll(".cal-del-btn").forEach(btn =>
       btn.addEventListener("click", async e => {
         e.stopPropagation();
         const naam = btn.dataset.calname;
-        if (!confirm(`Agenda "${naam}" verwijderen?\n\nAlle events worden ook verwijderd.`)) return;
+        if (!confirm(`Agenda "${naam}" verwijderen?
+
+Alle events in deze agenda worden ook verwijderd.`)) return;
         await verwijderAgenda(btn.dataset.calid);
       })
     );
 
-    // Groepen tonen
-    renderCalGroups(list);
-
-  }
-
-  function renderCalGroups(container) {
-    const groepen = Object.entries(calGroups);
-    if (groepen.length === 0) return;
-    const hdr = el("div", "sidebar-label", "Groepen");
-    hdr.style.marginTop = "8px";
-    container.appendChild(hdr);
-    groepen.forEach(([naam, ids]) => {
-      const kleuren = ids.map(id => calendars.find(c=>c.id===id)?.color).filter(Boolean);
-      const row = el("div", "cal-item cal-group-row");
-      row.innerHTML = `
-        <span class="cal-group-dots">${kleuren.map(k=>'<span style="background:'+k+';width:8px;height:8px;border-radius:50%;display:inline-block"></span>').join("")}</span>
-        <span class="cal-name">${naam}</span>
-        <button class="cal-group-del" data-groep="${naam}" title="Groep verwijderen" style="margin-left:auto;border:none;background:none;cursor:pointer;font-size:.8rem;opacity:.6">✕</button>
-      `;
-      container.appendChild(row);
-    });
-    container.querySelectorAll(".cal-group-del").forEach(btn =>
-      btn.addEventListener("click", e => {
-        e.stopPropagation();
-        delete calGroups[btn.dataset.groep];
-        renderSidebar(); renderAll();
-      })
-    );
     // Legenda event types
     const legend = $("type-legend");
     legend.innerHTML = "";
@@ -1263,17 +1024,8 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   }
 
-  // Converteer ISO datetime string naar lokale HH:MM
-  function localTime(isoStr) {
-    if (!isoStr) return "";
-    const d = new Date(isoStr);
-    return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
-  }
-
   function parseTime(t) {
-    if (!t || typeof t !== "string" || !t.includes(":")) return null;
     const [h, m] = t.split(":").map(Number);
-    if (isNaN(h) || h < 0 || h > 23) return null;
     return h * 60 + (m || 0);
   }
 
@@ -1472,9 +1224,7 @@
     $("rw-startdate").value  = cfg?.startDate || eersteZondagVanJaar(jaar);
     // Einddatum: standaard laatste zondag van het jaar
     const defaultEnd = cfg?.endDate || laatsteZondagVanJaar(jaar);
-    $("rw-enddate").value   = defaultEnd;
-    $("rw-starttime").value = cfg?.startTime || "09:00";
-    $("rw-endtime").value   = cfg?.endTime   || "10:30";
+    $("rw-enddate").value = defaultEnd;
   }
 
   function closeRoosterWizard() {
@@ -1486,10 +1236,8 @@
     const naam2    = $("rw-naam2").value.trim() || "Vriend";
     const pat1     = parseInt($("rw-patroon1").value) || 2;
     const pat2     = parseInt($("rw-patroon2").value) || 2;
-    const startStr  = $("rw-startdate").value;
-    const endStr    = $("rw-enddate").value;
-    const startTime = $("rw-starttime").value || "09:00";
-    const endTime   = $("rw-endtime").value   || "10:30";
+    const startStr = $("rw-startdate").value;
+    const endStr   = $("rw-enddate").value;
 
     if (!startStr) { alert("Vul een startdatum in."); return; }
     if (!endStr || endStr <= startStr) { alert("Vul een geldige einddatum in (na de startdatum)."); return; }
@@ -1502,16 +1250,13 @@
       patroon:   [pat1, pat2],
       startDate: startStr,
       endDate:   endStr,
-      startTime,
-      endTime,
       weken,
       updatedAt: Timestamp.now()
     };
 
     await setDoc(doc(db, "roosters", currentUser.uid), config);
     closeRoosterWizard();
-    const doelCal = calendars.find(c => c.owner === currentUser.uid);
-    showToast("✅ Rooster opgeslagen" + (doelCal ? " → " + doelCal.name : ""), "ok");
+    showToast("✅ Rooster opgeslagen", "ok");
 
     // Zet alle training-events in Firestore
     await syncRoosterToEvents(config);
@@ -1558,45 +1303,33 @@
   }
 
   async function syncRoosterToEvents(config) {
-    // Verwijder bestaande rooster-events via enkelvoudige query
+    // Verwijder eerst bestaande training-events van deze user
     const q = query(collection(db, "events"),
       where("members", "array-contains", currentUser.uid),
+      where("type", "==", "training"),
       where("rooster", "==", true)
     );
     const snap = await getDocs(q);
     await Promise.all(snap.docs.map(d => deleteDoc(doc(db, "events", d.id))));
 
-    // Gebruik eerste eigen kalender als doelagenda
-    let doelCalId = calendars.find(c => c.owner === currentUser.uid)?.id || "";
-    if (!doelCalId) {
-      await createCalendar("Training");
-      doelCalId = calendars.find(c => c.owner === currentUser.uid)?.id || "";
-    }
-
-    // Voeg nieuwe events toe (sla "geen training" weken over)
-    const batch = config.weken
-      .filter(week => !week.geen)
-      .map(week => ({
-        title:      week.invaller
-                      ? "Invaller: " + week.invaller
-                      : "Training — " + (week.wie === "naam1" ? config.naam1 : config.naam2),
-        type:       "training",
-        allDay:     !(config.startTime && config.endTime),
-        startDate:  week.datum,
-        endDate:    week.datum,
-        startTime:  config.startTime || "",
-        endTime:    config.endTime   || "",
-        calendarId: doelCalId,
-        rooster:    true,
-        wie:        week.wie,
-        swap:       week.swap,
-        notitie:    week.notitie || "",
-        members:    [currentUser.uid],
-        createdAt:  Timestamp.now()
-      }));
+    // Voeg nieuwe events toe
+    const batch = config.weken.map(week => ({
+      title:      `🏃 Training — ${week.wie === "naam1" ? config.naam1 : config.naam2}`,
+      type:       "training",
+      allDay:     true,
+      startDate:  week.datum,
+      endDate:    week.datum,
+      calendarId: "",
+      rooster:    true,
+      wie:        week.wie,
+      swap:       week.swap,
+      notitie:    week.notitie,
+      members:    [currentUser.uid],
+      createdAt:  Timestamp.now()
+    }));
 
     await Promise.all(batch.map(ev => addDoc(collection(db, "events"), ev)));
-    showToast("📅 " + batch.length + " trainingen in agenda gezet", "info");
+    showToast(`📅 ${batch.length} trainingen in agenda gezet`, "info");
   }
 
   // ── Swap week ─────────────────────────────────────────
@@ -1650,15 +1383,19 @@
   }
 
   async function saveWeekMenu() {
-    if (!roosterConfig) return;
-    const idx      = weekMenuIdx;
-    const invaller = $("wmenu-invaller").value.trim();
-    const geen     = $("wmenu-geen-check").checked
-      ? ($("wmenu-geen").value.trim() || "geen reden") : "";
+    const idx    = weekMenuIdx;
+    const weken  = [...roosterConfig.weken];
+    const w      = { ...weken[idx] };
 
-    const weken = roosterConfig.weken.map((w, i) =>
-      i === idx ? { ...w, invaller, geen } : { ...w }
-    );
+    // Invaller
+    w.invaller = $("wmenu-invaller").value.trim();
+
+    // Geen training
+    w.geen = $("wmenu-geen-check").checked
+      ? ($("wmenu-geen").value.trim() || "geen reden")
+      : "";
+
+    weken[idx] = w;
     await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
     await syncRoosterToEvents({ ...roosterConfig, weken });
     closeWeekMenu();
@@ -1666,13 +1403,12 @@
   }
 
   async function doSwapFromMenu() {
-    if (!roosterConfig) return;
     const idx   = weekMenuIdx;
-    const weken = roosterConfig.weken.map((w, i) =>
-      i === idx
-        ? { ...w, wie: w.wie === "naam1" ? "naam2" : "naam1", swap: !w.swap }
-        : { ...w }
-    );
+    const weken = [...roosterConfig.weken];
+    const w     = { ...weken[idx] };
+    w.wie  = w.wie === "naam1" ? "naam2" : "naam1";
+    w.swap = !w.swap;
+    weken[idx] = w;
     await updateDoc(doc(db, "roosters", currentUser.uid), { weken, updatedAt: Timestamp.now() });
     await syncRoosterToEvents({ ...roosterConfig, weken });
     closeWeekMenu();
@@ -1929,7 +1665,7 @@
     touch-action: pan-y;   /* sta verticaal scrollen toe, blokkeer horizontaal niet */
     user-select: none;     /* voorkom tekst-selectie bij swipen */
   }
-  #calendar-grid { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+  #calendar-grid { flex: 1; overflow-y: auto; }
 
   /* ── FAB ────────────────────────────────────── */
   #btn-new {
@@ -1952,19 +1688,11 @@
     table-layout: fixed;
   }
   .grid-header {
-    padding: 6px 2px; font-size: .68rem; font-weight: 700; color: var(--muted);
-    text-align: center; text-transform: uppercase; letter-spacing: .01em;
-    background: #f8f9fa;
-    border-right: 1px solid var(--border); border-bottom: 2px solid var(--border);
-    overflow: hidden; white-space: nowrap;
-  }
-  /* Altijd korte naam tonen */
-  .gh-lang { display: none; }
-  .gh-kort { display: inline; font-size: .65rem; font-weight: 700; }
-  /* Bredere schermen: volledige naam */
-  @media(min-width:480px) {
-    .gh-lang { display: inline; font-size: .70rem; }
-    .gh-kort { display: none; }
+    padding: 5px 2px; font-size: .68rem; font-weight: 700; color: var(--muted);
+    text-align: center; text-transform: uppercase; letter-spacing: .02em;
+    background: var(--surface);
+    border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    overflow: hidden;
   }
   .day-cell {
     min-height: 70px;
@@ -2047,15 +1775,12 @@
   @media(min-width:480px) { .ev-more { font-size: .73rem; } }
 
   /* ── Week / Day grid ────────────────────────── */
-  .grid-week, .grid-day { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .grid-week, .grid-day { display: flex; flex-direction: column; height: 100%; }
   .week-header-row {
     display: flex; border-bottom: 1px solid var(--border);
     background: var(--surface); flex-shrink: 0;
   }
-  .time-gutter {
-    width: 36px; flex-shrink: 0;
-    background: var(--surface); z-index: 4;
-  }
+  .time-gutter { width: 36px; flex-shrink: 0; }
   @media(min-width:500px) { .time-gutter { width: 52px; } }
   .week-day-header {
     flex: 1; text-align: center; padding: 8px 4px; cursor: pointer;
@@ -2071,12 +1796,8 @@
   }
   .wdh-name { font-size: .70rem; text-transform: uppercase; font-weight: 700; }
   .wdh-num  { font-size: 1.1rem; font-weight: 400; line-height: 1; margin-top: 2px; }
-  .week-body, .day-body { display: flex; flex: 1; min-height: 0; overflow-y: auto; }
-  .time-col {
-    width: 36px; flex-shrink: 0; display: flex; flex-direction: column;
-    position: sticky; left: 0; background: var(--surface);
-    z-index: 3; border-right: 1px solid var(--border);
-  }
+  .week-body, .day-body { display: flex; flex: 1; overflow-y: auto; }
+  .time-col { width: 36px; flex-shrink: 0; display: flex; flex-direction: column; }
   @media(min-width:500px) { .time-col { width: 52px; } }
   .time-label {
     height: 48px; font-size: .70rem; color: var(--muted);
@@ -2089,9 +1810,8 @@
   .week-ev-pill {
     position: absolute; left: 2px; right: 2px;
     color: #fff; border-radius: 4px; padding: 2px 4px;
-    font-size: .72rem; cursor: pointer; z-index: 2;
-    transition: filter .1s; overflow: hidden;
-    display: flex; align-items: flex-start; gap: 2px;
+    font-size: .74rem; overflow: hidden; cursor: pointer;
+    z-index: 2; transition: filter .1s;
   }
   .week-ev-pill:hover { filter: brightness(1.12); }
 
@@ -2368,78 +2088,19 @@
   .gcal-doel-sel { width: 100%; }
 
   /* ── Sidebar: share knop ──────────────────────── */
-  .cal-item { position: relative; }
-  .cal-toggle {
-    width: 14px; height: 14px; flex-shrink: 0; cursor: pointer;
-    accent-color: var(--primary);
-  }
-  .cal-hidden .cal-name { opacity: .4; }
   .cal-item-actions {
     margin-left: auto; display: flex; gap: 2px;
     opacity: 0; transition: opacity .15s; flex-shrink: 0;
   }
   .cal-item:hover .cal-item-actions { opacity: 1; }
-  .cal-share-btn, .cal-del-btn, .cal-group-btn {
+  .cal-share-btn, .cal-del-btn {
     border: none; background: none; cursor: pointer;
-    font-size: .82rem; padding: 2px 4px; border-radius: 4px;
-    transition: background .1s; line-height: 1;
+    font-size: .85rem; padding: 2px 4px; border-radius: 4px;
+    transition: background .1s;
   }
-  .cal-share-btn:hover  { background: #e8f0fe; }
-  .cal-group-btn:hover  { background: #e8f5e9; }
-  .cal-del-btn:hover    { background: #fce8e6; }
-  .cal-shared-badge     { font-size: .75rem; }
-  .cal-group-row        { cursor: default; }
-  .cal-group-dots       { display: flex; gap: 2px; align-items: center; }
-
-  /* ── Uitnodigingen modal ────────────────────── */
-  #uitnodig-overlay, #groep-overlay {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,.4); z-index: 200;
-    align-items: center; justify-content: center; padding: 16px;
-  }
-  #uitnodig-modal, #groep-modal {
-    background: var(--surface); border-radius: 16px;
-    box-shadow: 0 8px 40px rgba(0,0,0,.2);
-    width: 100%; max-width: 400px; padding: 20px;
-    display: flex; flex-direction: column; gap: 12px;
-    animation: popIn .18s ease; max-height: 85dvh; overflow-y: auto;
-  }
-  #uitnodig-modal-titel, #groep-modal-titel {
-    font-size: 1rem; font-weight: 700;
-  }
-  .uitnodig-row {
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 10px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--bg);
-  }
-  .uitnodig-email   { flex: 1; font-size: .88rem; }
-  .uitnodig-revoke  {
-    border: 1px solid #f5c6c2; background: none; color: #d93025;
-    border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: .78rem;
-    white-space: nowrap; transition: background .1s;
-  }
-  .uitnodig-revoke:hover { background: #fce8e6; }
-  .uitnodig-nieuw-row {
-    display: flex; gap: 6px;
-  }
-  #uitnodig-nieuw {
-    flex: 1; border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px 10px; font-size: .88rem; font-family: var(--font);
-  }
-  #uitnodig-nieuw:focus { outline: none; border-color: var(--primary); }
-
-  /* ── Groepen modal ──────────────────────────── */
-  .groep-cal-row {
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 8px; border-radius: 6px; cursor: pointer;
-  }
-  .groep-cal-row:hover { background: var(--bg); }
-  #groep-naam {
-    border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px 10px; font-size: .9rem; font-family: var(--font);
-    width: 100%;
-  }
-  #groep-naam:focus { outline: none; border-color: var(--primary); }
+  .cal-share-btn:hover { background: #e8f0fe; }
+  .cal-del-btn:hover   { background: #fce8e6; }
+  .cal-shared-badge    { font-size: .75rem; }
 
   /* ── Toast ──────────────────────────────────── */
   .toast {
@@ -2612,41 +2273,6 @@
 </div>
 
 
-<!-- Uitnodigingen modal -->
-<div id="uitnodig-overlay">
-  <div id="uitnodig-modal">
-    <div id="uitnodig-modal-titel">👥 Uitnodigingen</div>
-    <div id="uitnodig-lijst"></div>
-    <div class="uitnodig-nieuw-row">
-      <input id="uitnodig-nieuw" type="email" placeholder="E-mailadres toevoegen…">
-      <button id="btn-uitnodig-stuur" class="btn-primary" style="padding:8px 12px">Uitnodigen</button>
-    </div>
-    <div class="modal-actions">
-      <button id="btn-uitnodig-sluit" class="btn-ghost">Sluiten</button>
-    </div>
-  </div>
-</div>
-
-<!-- Groepen modal -->
-<div id="groep-overlay">
-  <div id="groep-modal">
-    <div id="groep-modal-titel">⊕ Agenda samenvoegen</div>
-    <div class="form-row">
-      <label>Naam van de groep</label>
-      <input id="groep-naam" type="text" placeholder="Bijv. Gezin">
-    </div>
-    <div class="form-row">
-      <label>Combineer met deze agenda's</label>
-      <div id="groep-cal-lijst" style="display:flex;flex-direction:column;gap:4px;margin-top:4px"></div>
-    </div>
-    <div class="modal-actions">
-      <button id="btn-groep-sluit" class="btn-ghost">Annuleren</button>
-      <button id="btn-groep-sla"   class="btn-primary">Opslaan</button>
-    </div>
-  </div>
-</div>
-
-
 <!-- Google Agenda keuze-dialog -->
 <div id="gcal-keuze-overlay">
   <div id="gcal-keuze-modal">
@@ -2730,17 +2356,6 @@
       <div class="form-row" style="flex:1;min-width:130px">
         <label>Laatste trainingszondag</label>
         <input id="rw-enddate" type="date">
-      </div>
-    </div>
-
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <div class="form-row" style="flex:1;min-width:120px">
-        <label>Starttijd training</label>
-        <input id="rw-starttime" type="time" value="09:00">
-      </div>
-      <div class="form-row" style="flex:1;min-width:120px">
-        <label>Eindtijd training</label>
-        <input id="rw-endtime" type="time" value="10:30">
       </div>
     </div>
 
