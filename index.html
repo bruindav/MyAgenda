@@ -854,6 +854,22 @@
     }
     grid.appendChild(hdr);
 
+    // Hele-dag rij (boven scrollbare tijdkolom)
+    const alldayRow = el("div", "allday-row");
+    alldayRow.appendChild(el("div", "time-gutter"));
+    cols.forEach(d => {
+      const adCol = el("div", "allday-col");
+      getEventsForDay(d).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
+        const bar = el("div", "allday-bar");
+        bar.textContent = eventIcon(ev) + " " + ev.title;
+        bar.style.background = eventColor(ev);
+        bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
+        adCol.appendChild(bar);
+      });
+      alldayRow.appendChild(adCol);
+    });
+    grid.appendChild(alldayRow);
+
     // Scroll-container
     const body = el("div", "week-body");
 
@@ -874,8 +890,8 @@
         });
         dc.appendChild(slot);
       }
-      // Events in deze dag
-      getEventsForDay(d).forEach(ev => placeInCol(dc, ev));
+      // Alleen getijde events (allDay wordt boven getoond)
+      getEventsForDay(d).filter(ev => !ev.allDay && ev.startTime).forEach(ev => placeInCol(dc, ev));
       body.appendChild(dc);
     });
 
@@ -892,6 +908,17 @@
     grid.className = "grid-day";
     grid.style.cssText = "display:flex;flex-direction:column;height:100%;overflow:hidden;";
 
+    // Hele-dag rij
+    const adRowDay = el("div", "allday-row allday-row-day");
+    getEventsForDay(viewDate).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
+      const bar = el("div", "allday-bar");
+      bar.textContent = eventIcon(ev) + " " + ev.title;
+      bar.style.background = eventColor(ev);
+      bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
+      adRowDay.appendChild(bar);
+    });
+    if (adRowDay.children.length > 0) grid.appendChild(adRowDay);
+
     const body = el("div", "day-body");
 
     const tcol = el("div", "time-col");
@@ -907,7 +934,8 @@
       });
       dc.appendChild(slot);
     }
-    getEventsForDay(viewDate).forEach(ev => placeInCol(dc, ev));
+    // Alleen getijde events
+    getEventsForDay(viewDate).filter(ev => !ev.allDay && ev.startTime).forEach(ev => placeInCol(dc, ev));
     body.appendChild(dc);
     grid.appendChild(body);
 
@@ -927,11 +955,9 @@
 
   // Plaats een event als pill in een dag-kolom
   function placeInCol(col, ev) {
-    console.log('[place]', ev.title, 'allDay:', ev.allDay, 'startTime:', JSON.stringify(ev.startTime));
     if (ev.allDay) return; // hele-dag events: niet in tijdkolom
 
     const startMin = parseHM(ev.startTime);
-    console.log('[place]', ev.title, 'startMin:', startMin);
     if (startMin === null) return; // geen tijdinfo: overslaan
 
     const endMin   = parseHM(ev.endTime) ?? startMin + 60;
@@ -2047,6 +2073,46 @@
   }
   .ev-pill:hover { filter: brightness(1.1); }
   .ev-more { font-size: .68rem; color: var(--muted); padding: 1px 2px; }
+
+  /* ── Hele-dag rij (boven tijdgrid) ────────── */
+  .allday-row {
+    display: flex;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    min-height: 0;
+  }
+  .allday-row .time-gutter {
+    border-right: 1px solid var(--border);
+    font-size: .65rem; color: var(--muted);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 4px;
+  }
+  .allday-row .time-gutter::after { content: "dag"; }
+  .allday-col {
+    flex: 1;
+    border-left: 1px solid var(--border);
+    padding: 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .allday-row-day { padding: 4px 8px; }
+  .allday-row-day .allday-bar { max-width: 100%; }
+  .allday-bar {
+    display: block;
+    color: #fff;
+    border-radius: 3px;
+    padding: 2px 5px;
+    font-size: .72rem;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: filter .1s;
+  }
+  .allday-bar:hover { filter: brightness(1.1); }
 
   /* ═══════════════════════════════════════════
      WEEK / DAG WEERGAVE
