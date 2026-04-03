@@ -123,7 +123,9 @@
     // ── Android back button ──────────────────
     history.pushState({ app: "agenda" }, "");
     window.addEventListener("popstate", () => {
-      if ($("modal-overlay").style.display === "flex") {
+      if ($("detail-overlay").style.display === "flex") {
+        closeDetail();
+      } else if ($("modal-overlay").style.display === "flex") {
         closeModal();
       } else {
         history.pushState({ app: "agenda" }, "");
@@ -177,6 +179,24 @@
     $("btn-new").addEventListener("click", () => openModal(null));
 
     // modal
+    // Detail-overlay listeners
+    $("detail-overlay").addEventListener("click", e => {
+      if (e.target === $("detail-overlay")) closeDetail();
+    });
+    $("btn-detail-sluit").addEventListener("click", closeDetail);
+    $("btn-detail-bewerk").addEventListener("click", () => {
+      const ev = $("detail-overlay")._ev;
+      closeDetail();
+      openModal(ev);
+    });
+    $("btn-detail-verwijder").addEventListener("click", async () => {
+      const ev = $("detail-overlay")._ev;
+      if (!ev || !ev.id) return;
+      if (!confirm(""" + ev.title + "" verwijderen?")) return;
+      await deleteDoc(doc(db, "events", ev.id));
+      closeDetail();
+    });
+
     $("modal-overlay").addEventListener("click", e => {
       if (e.target === $("modal-overlay")) closeModal();
     });
@@ -776,10 +796,17 @@
       dayEvs.slice(0, 3).forEach(ev => {
         const pill = el("div", "ev-pill");
         pill.style.background = eventColor(ev);
-        pill.textContent = ev.allDay
-          ? (eventIcon(ev) + " " + ev.title)
-          : (ev.startTime ? ev.startTime.slice(0,5) + " " + ev.title : ev.title);
-        pill.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
+        // Geen tijden in maandgrid — alleen icoon + titel
+        pill.textContent = eventIcon(ev) + " " + ev.title;
+        pill.addEventListener("click", e => {
+          e.stopPropagation();
+          // Klik op event → open dagweergave voor die dag
+          viewDate = dateObj;
+          currentView = "day";
+          document.querySelectorAll(".view-btn").forEach(x => x.classList.remove("active"));
+          document.querySelector('[data-view="day"]').classList.add("active");
+          renderAll();
+        });
         cell.appendChild(pill);
       });
 
@@ -917,7 +944,7 @@
       + (ev.startTime ? "<span class='tp-time'>" + ev.startTime.slice(0,5) + "</span>" : "")
       + "<span class='tp-title'>" + ev.title + "</span>"
       + "</span>";
-    pill.addEventListener("click", e => { e.stopPropagation(); openModal(ev); });
+    pill.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
     col.appendChild(pill);
   }
 
@@ -969,7 +996,7 @@
         <span class="list-title">${ev.title}</span>
         ${ev.gcal ? '<span class="gcal-badge">Google</span>' : ""}
       `;
-      row.addEventListener("click", () => openModal(ev));
+      row.addEventListener("click", () => showEventDetail(ev));
       grid.appendChild(row);
     });
   }
@@ -1075,6 +1102,32 @@
   }
 
   // ── MODAL ────────────────────────────────────
+  // ── Event detail kaart (dag/week weergave) ─────────
+  function showEventDetail(ev) {
+    const cal    = calendars.find(c => c.id === ev.calendarId);
+    const icon   = eventIcon(ev);
+    const color  = eventColor(ev);
+    const datum  = ev.startDate || "";
+    const tijd   = ev.allDay ? "Hele dag"
+                 : ((ev.startTime || "") + (ev.endTime ? " – " + ev.endTime : ""));
+    const d = $("detail-overlay");
+    $("detail-icon").textContent  = icon;
+    $("detail-icon").style.color  = color;
+    $("detail-title").textContent = ev.title;
+    $("detail-datum").textContent = datum + (tijd ? "  ·  " + tijd : "");
+    $("detail-cal").textContent   = cal ? cal.name : "";
+    $("detail-desc").textContent  = ev.description || "";
+    $("detail-desc").style.display = ev.description ? "block" : "none";
+    // Sla event op voor wijzig/verwijder knoppen
+    d.dataset.evid = ev.id || "";
+    d._ev = ev;
+    d.style.display = "flex";
+  }
+
+  function closeDetail() {
+    $("detail-overlay").style.display = "none";
+  }
+
   function openModal(ev, prefillDate) {
     // Google Calendar events zijn read-only
     if (ev && ev.gcal) {
@@ -2532,6 +2585,27 @@
 
 <!-- Toast -->
 <div id="toast" class="toast"></div>
+
+<!-- Event detail kaart -->
+<div id="detail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:200;align-items:center;justify-content:center;padding:16px">
+  <div id="detail-card" style="background:var(--surface);border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,.2);width:100%;max-width:420px;padding:24px;display:flex;flex-direction:column;gap:12px;animation:popIn .18s ease">
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <span id="detail-icon" style="font-size:1.8rem;line-height:1;flex-shrink:0"></span>
+      <div style="flex:1;min-width:0">
+        <div id="detail-title" style="font-size:1.1rem;font-weight:700;line-height:1.3;word-break:break-word"></div>
+        <div id="detail-datum" style="font-size:.85rem;color:var(--muted);margin-top:4px"></div>
+        <div id="detail-cal"   style="font-size:.80rem;color:var(--muted);margin-top:2px"></div>
+      </div>
+    </div>
+    <div id="detail-desc" style="font-size:.88rem;color:var(--text);background:var(--bg);border-radius:8px;padding:10px;display:none;white-space:pre-wrap"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+      <button id="btn-detail-verwijder" class="btn-danger" style="margin-right:auto">🗑 Verwijderen</button>
+      <button id="btn-detail-sluit"     class="btn-ghost">Sluiten</button>
+      <button id="btn-detail-bewerk"    class="btn-primary">✏️ Bewerken</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- Modal -->
 <div id="modal-overlay">
