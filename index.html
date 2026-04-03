@@ -548,6 +548,7 @@
 
     // Stap 1: schrijf een uitnodigingsverzoek in een eigen document
     // zodat de eigenaar dit kan verwerken
+    console.log("[koppel] email:", email, "uid:", user.uid);
     try {
       await setDoc(doc(db, "invite_requests", email), {
         email,
@@ -555,7 +556,8 @@
         naam:      user.displayName || "",
         updatedAt: Timestamp.now()
       });
-    } catch(e) { /* mag mislukken als al bestaat */ }
+      console.log("[koppel] invite_request geschreven");
+    } catch(e) { console.error("[koppel] invite_request FOUT:", e.code, e.message); }
 
     // Stap 2: lees agenda's waar uid al lid van is via members
     // (werkt al via subscribeData)
@@ -596,13 +598,19 @@
   // Verwerk uitnodigingsverzoeken — aanroepen vanuit de uitnodigingen-modal
   async function verwerkInviteRequests(calId) {
     try {
+      console.log("[verwerk] start voor calId:", calId);
       const reqSnap = await getDocs(collection(db, "invite_requests"));
+      console.log("[verwerk] invite_requests gevonden:", reqSnap.docs.length);
+      reqSnap.docs.forEach(d => console.log("  request:", d.id, d.data()));
       const calData = calendars.find(c => c.id === calId);
-      if (!calData) return;
+      if (!calData) { console.log("[verwerk] calData niet gevonden"); return; }
+      console.log("[verwerk] invites in agenda:", calData.invites);
+      console.log("[verwerk] members in agenda:", calData.members);
       const invites = calData.invites || [];
       let count = 0;
       for (const reqDoc of reqSnap.docs) {
         const req = reqDoc.data();
+        console.log("[verwerk] check:", req.email, "in invites:", invites.includes(req.email), "uid al member:", calData.members.includes(req.uid));
         if (invites.includes(req.email) && !calData.members.includes(req.uid)) {
           // Voeg uid toe aan calendar members
           await updateDoc(doc(db, "calendars", calId), {
