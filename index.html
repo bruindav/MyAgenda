@@ -545,35 +545,85 @@
   async function koppelGedeeldeAgendas(user) {
     const email = (user.email || "").toLowerCase().trim();
     if (!email) return;
-    // Zoek agenda's waar dit e-mailadres als invite staat maar uid nog niet in members
-    // Probeer zowel lowercase als origineel (voor bestaande data)
-    const invQ = query(
-      collection(db, "calendars"),
-      where("invites", "array-contains", email)
-    );
-    const invSnap = await getDocs(invQ);
-    for (const calDoc of invSnap.docs) {
-      const data = calDoc.data();
-      if (!data.members.includes(user.uid)) {
-        // Voeg uid toe aan members
-        await updateDoc(doc(db, "calendars", calDoc.id), {
-          members: [...data.members, user.uid]
-        });
-        // Voeg ook uid toe aan alle events van deze agenda
-        const evQ = query(collection(db, "events"),
-          where("calendarId", "==", calDoc.id)
-        );
-        const evSnap = await getDocs(evQ);
-        await Promise.all(evSnap.docs.map(evDoc => {
-          const em = evDoc.data().members || [];
-          if (!em.includes(user.uid)) {
-            return updateDoc(doc(db, "events", evDoc.id), {
-              members: [...em, user.uid]
-            });
-          }
-        }));
-        showToast(`📅 Gedeelde agenda "${data.name}" gekoppeld!`, "ok");
+
+    // Stap 1: schrijf een uitnodigingsverzoek in een eigen document
+    // zodat de eigenaar dit kan verwerken
+    try {
+      await setDoc(doc(db, "invite_requests", email), {
+        email,
+        uid:       user.uid,
+        naam:      user.displayName || "",
+        updatedAt: Timestamp.now()
+      });
+    } catch(e) { /* mag mislukken als al bestaat */ }
+
+    // Stap 2: lees agenda's waar uid al lid van is via members
+    // (werkt al via subscribeData)
+
+    // Stap 3: probeer ook via de invites-query (werkt als rules het toestaan)
+    try {
+      const invQ = query(
+        collection(db, "calendars"),
+        where("invites", "array-contains", email)
+      );
+      const invSnap = await getDocs(invQ);
+      for (const calDoc of invSnap.docs) {
+        const data = calDoc.data();
+        if (!data.members.includes(user.uid)) {
+          await updateDoc(doc(db, "calendars", calDoc.id), {
+            members: [...data.members, user.uid]
+          });
+          const evQ = query(collection(db, "events"),
+            where("calendarId", "==", calDoc.id)
+          );
+          const evSnap = await getDocs(evQ);
+          await Promise.all(evSnap.docs.map(evDoc => {
+            const em = evDoc.data().members || [];
+            if (!em.includes(user.uid)) {
+              return updateDoc(doc(db, "events", evDoc.id), {
+                members: [...em, user.uid]
+              });
+            }
+          }));
+          showToast(`📅 Gedeelde agenda "${data.name}" gekoppeld!`, "ok");
+        }
       }
+    } catch(e) {
+      console.log("Invite query geblokkeerd (normaal bij eerste login):", e.code);
+    }
+  }
+
+  // Verwerk uitnodigingsverzoeken — aanroepen vanuit de uitnodigingen-modal
+  async function verwerkInviteRequests(calId) {
+    try {
+      const reqSnap = await getDocs(collection(db, "invite_requests"));
+      const calData = calendars.find(c => c.id === calId);
+      if (!calData) return;
+      const invites = calData.invites || [];
+      let count = 0;
+      for (const reqDoc of reqSnap.docs) {
+        const req = reqDoc.data();
+        if (invites.includes(req.email) && !calData.members.includes(req.uid)) {
+          // Voeg uid toe aan calendar members
+          await updateDoc(doc(db, "calendars", calId), {
+            members: [...(calData.members), req.uid]
+          });
+          // Voeg uid toe aan alle events
+          const evQ = query(collection(db, "events"), where("calendarId", "==", calId));
+          const evSnap = await getDocs(evQ);
+          await Promise.all(evSnap.docs.map(evDoc => {
+            const em = evDoc.data().members || [];
+            if (!em.includes(req.uid)) {
+              return updateDoc(doc(db, "events", evDoc.id), { members: [...em, req.uid] });
+            }
+          }));
+          count++;
+        }
+      }
+      if (count > 0) showToast(`✅ ${count} uitnodiging(en) verwerkt`, "ok");
+      else showToast("Geen openstaande uitnodigingen gevonden", "info");
+    } catch(e) {
+      showToast("Fout bij verwerken: " + e.message, "error");
     }
   }
 
@@ -1072,7 +1122,8 @@
         <span class="cal-dot" style="background:${cal.color};opacity:${isHidden?0.4:1}"></span>
         <span class="cal-name" style="opacity:${isHidden?0.4:1}">${cal.name}</span>
         <span class="cal-item-actions">
-          ${isOwner ? `<button class="cal-share-btn" title="Uitnodigingen" data-calid="${cal.id}" data-calname="${cal.name}">👥</button>` : ""}
+          ${isOwner ? `<button class="cal-share-btn" title="Uitnodigingen beheren" data-calid="${cal.id}" data-calname="${cal.name}">👥</button>` : ""}
+          ${isOwner ? `<button class="cal-sync-btn" title="Openstaande uitnodigingen verwerken" data-calid="${cal.id}">🔄</button>` : ""}
           <button class="cal-group-btn" title="Samenvoegen" data-calid="${cal.id}" data-calname="${cal.name}">⊕</button>
           ${isOwner ? `<button class="cal-del-btn" title="Verwijderen" data-calid="${cal.id}" data-calname="${cal.name}">🗑</button>` : ""}
         </span>
@@ -1103,6 +1154,22 @@
       btn.addEventListener("click", e => {
         e.stopPropagation();
         openGroepModal(btn.dataset.calid, btn.dataset.calname);
+      })
+    );
+
+    // Sync/verwerk uitnodigingen knoppen
+    list.querySelectorAll(".cal-sync-btn").forEach(btn =>
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        await verwerkInviteRequests(btn.dataset.calid);
+      })
+    );
+
+    // Sync/verwerk uitnodigingen knoppen
+    list.querySelectorAll(".cal-sync-btn").forEach(btn =>
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        await verwerkInviteRequests(btn.dataset.calid);
       })
     );
 
