@@ -121,14 +121,39 @@
 
     // nav
     // ── Android back button ──────────────────
-    history.pushState({ app: "agenda" }, "");
-    window.addEventListener("popstate", () => {
-      if ($("detail-overlay").style.display === "flex") {
-        closeDetail();
-      } else if ($("modal-overlay").style.display === "flex") {
-        closeModal();
+    // Start met 2 history entries zodat er altijd een "vorige" is
+    history.replaceState({ app: "agenda", idx: 0 }, "");
+    history.pushState(   { app: "agenda", idx: 1 }, "");
+    let _histIdx = 1;
+
+    function pushNav() {
+      _histIdx++;
+      history.pushState({ app: "agenda", idx: _histIdx }, "");
+    }
+
+    window.addEventListener("popstate", e => {
+      // Sluit overlays van buiten naar binnen
+      const anyOverlay = [
+        "week-menu-overlay","groep-overlay","uitnodig-overlay",
+        "export-overlay","rooster-wizard-overlay","gcal-keuze-overlay",
+        "detail-overlay","modal-overlay"
+      ].find(id => $(id) && $(id).style.display === "flex");
+
+      if (anyOverlay) {
+        // Sluit de bovenste overlay en zet history terug
+        if (anyOverlay === "week-menu-overlay")    closeWeekMenu();
+        else if (anyOverlay === "groep-overlay")   closeGroepModal();
+        else if (anyOverlay === "uitnodig-overlay") closeUitnodigingModal();
+        else if (anyOverlay === "export-overlay")  closeExportModal();
+        else if (anyOverlay === "rooster-wizard-overlay") closeRoosterWizard();
+        else if (anyOverlay === "gcal-keuze-overlay")     closeGcalKeuzeDialog();
+        else if (anyOverlay === "detail-overlay")  closeDetail();
+        else if (anyOverlay === "modal-overlay")   closeModal();
+        // Push weer een state zodat de app niet verlaten wordt
+        pushNav();
       } else {
-        history.pushState({ app: "agenda" }, "");
+        // Geen overlay open: push state om in de app te blijven
+        pushNav();
       }
     });
 
@@ -709,6 +734,8 @@
   // ── Render orchestrator ──────────────────────
   function renderAll() {
     renderHeader();
+    // Push history state bij elke weergave-wissel (voor back-button)
+    if (typeof pushNav === "function") pushNav();
     if      (currentView === "month")   renderMonth();
     else if (currentView === "week")    renderWeek();
     else if (currentView === "day")     renderDay();
