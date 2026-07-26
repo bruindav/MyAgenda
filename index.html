@@ -1545,8 +1545,11 @@
     // inline style.cssText op #calendar-grid. Die inline stijl wint van
     // de class-CSS en bleef staan als je vanuit bijv. Maandweergave naar
     // Rooster navigeerde — resultaat: alles werd in een 7-koloms grid
-    // geperst. Expliciet resetten zodat .grid-rooster weer normaal werkt.
-    grid.style.cssText = "";
+    // geperst. Expliciet de juiste stijl zetten (net als de andere
+    // weergaves doen) ipv leegmaken: #calendar-grid heeft zelf een
+    // ID-regel "overflow:hidden" die anders zou winnen van de class
+    // ".grid-rooster" en scrollen zou blokkeren.
+    grid.style.cssText = "display:flex;flex-direction:column;height:100%;overflow-y:auto;";
 
     if (!roosterConfig) {
       // Welkomstscherm: nieuw rooster aanmaken
