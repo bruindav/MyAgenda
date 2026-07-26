@@ -1541,6 +1541,12 @@
     const grid = $("calendar-grid");
     grid.innerHTML = "";
     grid.className = "grid-rooster";
+    // BUGFIX: andere weergaves (Maand/Week/Dag/Lijst) zetten een eigen
+    // inline style.cssText op #calendar-grid. Die inline stijl wint van
+    // de class-CSS en bleef staan als je vanuit bijv. Maandweergave naar
+    // Rooster navigeerde — resultaat: alles werd in een 7-koloms grid
+    // geperst. Expliciet resetten zodat .grid-rooster weer normaal werkt.
+    grid.style.cssText = "";
 
     if (!roosterConfig) {
       // Welkomstscherm: nieuw rooster aanmaken
