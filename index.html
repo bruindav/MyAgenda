@@ -1564,7 +1564,7 @@
     hdr.innerHTML = `
       <div class="rooster-hdr-left">
         <span class="rooster-title">🏃 Trainingsrooster ${roosterConfig.jaar || ""}</span>
-        <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${roosterConfig.patroon[0]}/${roosterConfig.patroon[1]} · ${roosterConfig.startDate||""} t/m ${roosterConfig.endDate||""}</span>
+        <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${(roosterConfig.patroon||[])[0] ?? ""}/${(roosterConfig.patroon||[])[1] ?? ""} · ${roosterConfig.startDate||""} t/m ${roosterConfig.endDate||""}</span>
       </div>
       <div class="rooster-hdr-actions">
         <button class="btn-ghost btn-sm" id="btn-rooster-edit">✏️ Bewerken</button>
@@ -2791,13 +2791,23 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
     padding: 12px 20px; background: var(--surface);
     border-bottom: 1px solid var(--border); flex-shrink: 0;
+    position: sticky; top: 0; z-index: 5;
   }
-  .rooster-hdr-left { display: flex; flex-direction: column; gap: 2px; }
+  .rooster-hdr-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .rooster-title    { font-size: 1rem; font-weight: 700; }
-  .rooster-sub      { font-size: .80rem; color: var(--muted); }
+  .rooster-sub      { font-size: .80rem; color: var(--muted); overflow-wrap: break-word; }
   .rooster-hdr-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .btn-sm { padding: 5px 10px !important; font-size: .80rem !important; }
   .btn-danger-sm { color: #d93025 !important; border-color: #f5c6c2 !important; }
+
+  /* Op mobiel: knoppen altijd als vast, volledig zichtbaar 2x2-grid ipv wrap */
+  @media(max-width:640px) {
+    .rooster-header { flex-direction: column; align-items: stretch; }
+    .rooster-hdr-actions {
+      display: grid; grid-template-columns: 1fr 1fr; width: 100%;
+    }
+    .rooster-hdr-actions .btn-danger-sm { grid-column: 1 / -1; }
+  }
 
   .rooster-legend {
     display: flex; gap: 16px; padding: 8px 20px;
@@ -2834,18 +2844,24 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .rooster-dd  { font-size: 1.1rem; font-weight: 700; line-height: 1.1; }
   .rooster-mnd { font-size: .68rem; color: var(--muted); }
 
+  /* Kolom ipv rij: naam altijd op eigen regel, badge altijd op eigen
+     volgende regel. Zo kan de badge NOOIT naast de ⋯-knop komen te
+     staan of erover heen vallen, ongeacht schermbreedte of tekstlengte. */
   .rooster-wie {
     flex: 1; padding: 4px 10px; border-radius: 6px; min-width: 0;
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
   }
-  .rooster-naam      { font-size: .88rem; font-weight: 600; }
+  .rooster-naam {
+    font-size: .88rem; font-weight: 600; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .rooster-swap-badge {
     font-size: .72rem; background: #fff3e0; color: #e65100;
     border: 1px solid #ffe0b2; border-radius: 10px; padding: 1px 6px;
   }
   .rooster-notitie { font-size: .78rem; color: var(--muted); font-style: italic; }
 
-  .rooster-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .rooster-actions { display: flex; gap: 4px; flex-shrink: 0; align-self: center; }
   .rooster-btn-menu {
     border: 1px solid var(--border); background: var(--surface);
     border-radius: 8px; padding: 6px 12px; cursor: pointer;
@@ -2856,7 +2872,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
 
   .rooster-badge {
     font-size: .72rem; border-radius: 10px; padding: 2px 8px;
-    white-space: nowrap;
+    white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
   }
   .rooster-badge-swap { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
   .rooster-badge-inv  { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
@@ -2864,6 +2880,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
 
   .rooster-geen     { opacity: .6; }
   .rooster-invaller { border-color: #a5d6a7; background: #f1f8f1; }
+
 
   /* ── Rooster wizard overlay ────────────────── */
   #rooster-wizard-overlay {
