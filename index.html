@@ -142,7 +142,7 @@
       const anyOverlay = [
         "week-menu-overlay","groep-overlay","uitnodig-overlay",
         "export-overlay","rooster-wizard-overlay","gcal-keuze-overlay",
-        "detail-overlay","modal-overlay"
+        "detail-overlay","modal-overlay","share-overlay"
       ].find(id => $(id) && $(id).style.display === "flex");
 
       if (anyOverlay) {
@@ -151,6 +151,7 @@
         else if (anyOverlay === "groep-overlay")   closeGroepModal();
         else if (anyOverlay === "uitnodig-overlay") closeUitnodigingModal();
         else if (anyOverlay === "export-overlay")  closeExportModal();
+        else if (anyOverlay === "share-overlay")   closeShareModal();
         else if (anyOverlay === "rooster-wizard-overlay") closeRoosterWizard();
         else if (anyOverlay === "gcal-keuze-overlay")     closeGcalKeuzeDialog();
         else if (anyOverlay === "detail-overlay")  closeDetail();
@@ -298,6 +299,18 @@
     $("btn-export-ics").addEventListener("click",      downloadICS);
     $("btn-export-copy").addEventListener("click",     kopieerTekst);
     $("export-wie").addEventListener("change", e => renderExportPreview(e.target.value));
+
+    // Share modal (mail/WhatsApp)
+    $("share-overlay").addEventListener("click", e => {
+      if (e.target === $("share-overlay")) closeShareModal();
+    });
+    $("btn-share-close").addEventListener("click", closeShareModal);
+    $("btn-share-copy").addEventListener("click",  kopieerShareTekst);
+    $("btn-share-mail").addEventListener("click",  shareViaMail);
+    $("btn-share-whatsapp").addEventListener("click", shareViaWhatsapp);
+    document.querySelectorAll('input[name="share-periode"]').forEach(radio =>
+      radio.addEventListener("change", e => renderSharePreview(e.target.value))
+    );
 
     // Startdatum → vul einddatum in als die leeg is of gelijk/eerder
     $("ev-start-date").addEventListener("change", () => {
@@ -1528,6 +1541,15 @@
     const grid = $("calendar-grid");
     grid.innerHTML = "";
     grid.className = "grid-rooster";
+    // BUGFIX: andere weergaves (Maand/Week/Dag/Lijst) zetten een eigen
+    // inline style.cssText op #calendar-grid. Die inline stijl wint van
+    // de class-CSS en bleef staan als je vanuit bijv. Maandweergave naar
+    // Rooster navigeerde — resultaat: alles werd in een 7-koloms grid
+    // geperst. Expliciet de juiste stijl zetten (net als de andere
+    // weergaves doen) ipv leegmaken: #calendar-grid heeft zelf een
+    // ID-regel "overflow:hidden" die anders zou winnen van de class
+    // ".grid-rooster" en scrollen zou blokkeren.
+    grid.style.cssText = "display:flex;flex-direction:column;height:100%;overflow-y:auto;";
 
     if (!roosterConfig) {
       // Welkomstscherm: nieuw rooster aanmaken
@@ -1551,16 +1573,18 @@
     hdr.innerHTML = `
       <div class="rooster-hdr-left">
         <span class="rooster-title">🏃 Trainingsrooster ${roosterConfig.jaar || ""}</span>
-        <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${roosterConfig.patroon[0]}/${roosterConfig.patroon[1]} · ${roosterConfig.startDate||""} t/m ${roosterConfig.endDate||""}</span>
+        <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${(roosterConfig.patroon||[])[0] ?? ""}/${(roosterConfig.patroon||[])[1] ?? ""} · ${roosterConfig.startDate||""} t/m ${roosterConfig.endDate||""}</span>
       </div>
       <div class="rooster-hdr-actions">
         <button class="btn-ghost btn-sm" id="btn-rooster-edit">✏️ Bewerken</button>
+        <button class="btn-ghost btn-sm" id="btn-rooster-share">📨 Delen</button>
         <button class="btn-ghost btn-sm" id="btn-rooster-export">📤 Exporteren</button>
         <button class="btn-ghost btn-sm btn-danger-sm" id="btn-rooster-delete">🗑</button>
       </div>
     `;
     grid.appendChild(hdr);
     $("btn-rooster-edit").addEventListener("click", openRoosterWizard);
+    $("btn-rooster-share").addEventListener("click", openShareModal);
     $("btn-rooster-export").addEventListener("click", openExportModal);
     $("btn-rooster-delete").addEventListener("click", deleteRooster);
 
@@ -1955,6 +1979,92 @@
 
   function kopieerTekst() {
     const txt = $("export-tekst").value;
+    navigator.clipboard.writeText(txt).then(() => showToast("📋 Gekopieerd", "ok"));
+  }
+
+  // ── Delen (mail / WhatsApp) ─────────────────────────────
+  function openShareModal() {
+    $("share-overlay").style.display = "flex";
+    const checked = document.querySelector('input[name="share-periode"]:checked');
+    renderSharePreview(checked ? checked.value : "jan");
+  }
+  function closeShareModal() { $("share-overlay").style.display = "none"; }
+
+  // Bepaalt de cutoff-datum voor een periode, uitgaande van het seizoen
+  // waarin het rooster loopt (zodat "tot 31 januari" altijd de eerstvolgende
+  // 31 januari na de startdatum van het rooster is, ook als dat volgend
+  // kalenderjaar is).
+  function getShareCutoff(periode) {
+    const weken = roosterConfig?.weken || [];
+    if (!weken.length) return null;
+    const startDate = new Date(weken[0].datum + "T00:00:00");
+    const startYear = startDate.getFullYear();
+    let cutoff = periode === "jul"
+      ? new Date(startYear, 6, 30)   // 30 juli
+      : new Date(startYear, 0, 31);  // 31 januari
+    if (cutoff < startDate) {
+      cutoff = periode === "jul"
+        ? new Date(startYear + 1, 6, 30)
+        : new Date(startYear + 1, 0, 31);
+    }
+    return cutoff;
+  }
+
+  function buildShareRegels(periode) {
+    const cfg    = roosterConfig;
+    const cutoff = getShareCutoff(periode);
+    const weken  = (cfg.weken || []).filter(w => new Date(w.datum + "T00:00:00") <= cutoff);
+    const lines  = [];
+    let lastKey  = "";
+
+    weken.forEach(w => {
+      const d   = new Date(w.datum + "T00:00:00");
+      const key = d.getFullYear() + "-" + d.getMonth();
+      if (key !== lastKey) {
+        if (lastKey) lines.push("");
+        lines.push(`📅 ${MONTHS[d.getMonth()]} ${d.getFullYear()}`);
+        lastKey = key;
+      }
+
+      const naam = w.wie === "naam1" ? cfg.naam1 : cfg.naam2;
+      let statusText;
+      if (w.geen)           statusText = `🚫 Geen training (${w.geen})`;
+      else if (w.invaller)  statusText = `${naam} → invaller: ${w.invaller}`;
+      else if (w.swap)      statusText = `${naam} (geruild)`;
+      else                  statusText = naam;
+
+      lines.push(`${WEEKDAYS_SHORT[d.getDay()]} ${String(d.getDate()).padStart(2,"0")} ${MONTHS[d.getMonth()].slice(0,3)} — ${statusText}`);
+    });
+
+    return { lines, weken };
+  }
+
+  function renderSharePreview(periode) {
+    const cfg = roosterConfig;
+    const { lines, weken } = buildShareRegels(periode);
+    const cutoff = getShareCutoff(periode);
+    const cutoffLabel = cutoff
+      ? `${String(cutoff.getDate()).padStart(2,"0")} ${MONTHS[cutoff.getMonth()]} ${cutoff.getFullYear()}`
+      : "";
+
+    const header = `🏃 Trainingsrooster ${cfg.naam1} & ${cfg.naam2}\nT/m ${cutoffLabel}\n`;
+    $("share-tekst").value  = weken.length ? header + "\n" + lines.join("\n") : "Geen trainingen gevonden in deze periode.";
+    $("share-count").textContent = weken.length;
+  }
+
+  function shareViaMail() {
+    const tekst = $("share-tekst").value;
+    const subject = "Trainingsrooster";
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(tekst)}`;
+  }
+
+  function shareViaWhatsapp() {
+    const tekst = $("share-tekst").value;
+    window.open(`https://wa.me/?text=${encodeURIComponent(tekst)}`, "_blank");
+  }
+
+  function kopieerShareTekst() {
+    const txt = $("share-tekst").value;
     navigator.clipboard.writeText(txt).then(() => showToast("📋 Gekopieerd", "ok"));
   }
 
@@ -2690,13 +2800,23 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
     padding: 12px 20px; background: var(--surface);
     border-bottom: 1px solid var(--border); flex-shrink: 0;
+    position: sticky; top: 0; z-index: 5;
   }
-  .rooster-hdr-left { display: flex; flex-direction: column; gap: 2px; }
+  .rooster-hdr-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .rooster-title    { font-size: 1rem; font-weight: 700; }
-  .rooster-sub      { font-size: .80rem; color: var(--muted); }
+  .rooster-sub      { font-size: .80rem; color: var(--muted); overflow-wrap: break-word; }
   .rooster-hdr-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .btn-sm { padding: 5px 10px !important; font-size: .80rem !important; }
   .btn-danger-sm { color: #d93025 !important; border-color: #f5c6c2 !important; }
+
+  /* Op mobiel: knoppen altijd als vast, volledig zichtbaar 2x2-grid ipv wrap */
+  @media(max-width:640px) {
+    .rooster-header { flex-direction: column; align-items: stretch; }
+    .rooster-hdr-actions {
+      display: grid; grid-template-columns: 1fr 1fr; width: 100%;
+    }
+    .rooster-hdr-actions .btn-danger-sm { grid-column: 1 / -1; }
+  }
 
   .rooster-legend {
     display: flex; gap: 16px; padding: 8px 20px;
@@ -2733,18 +2853,24 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .rooster-dd  { font-size: 1.1rem; font-weight: 700; line-height: 1.1; }
   .rooster-mnd { font-size: .68rem; color: var(--muted); }
 
+  /* Kolom ipv rij: naam altijd op eigen regel, badge altijd op eigen
+     volgende regel. Zo kan de badge NOOIT naast de ⋯-knop komen te
+     staan of erover heen vallen, ongeacht schermbreedte of tekstlengte. */
   .rooster-wie {
     flex: 1; padding: 4px 10px; border-radius: 6px; min-width: 0;
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
   }
-  .rooster-naam      { font-size: .88rem; font-weight: 600; }
+  .rooster-naam {
+    font-size: .88rem; font-weight: 600; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .rooster-swap-badge {
     font-size: .72rem; background: #fff3e0; color: #e65100;
     border: 1px solid #ffe0b2; border-radius: 10px; padding: 1px 6px;
   }
   .rooster-notitie { font-size: .78rem; color: var(--muted); font-style: italic; }
 
-  .rooster-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .rooster-actions { display: flex; gap: 4px; flex-shrink: 0; align-self: center; }
   .rooster-btn-menu {
     border: 1px solid var(--border); background: var(--surface);
     border-radius: 8px; padding: 6px 12px; cursor: pointer;
@@ -2755,7 +2881,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
 
   .rooster-badge {
     font-size: .72rem; border-radius: 10px; padding: 2px 8px;
-    white-space: nowrap;
+    white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
   }
   .rooster-badge-swap { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
   .rooster-badge-inv  { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
@@ -2763,6 +2889,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
 
   .rooster-geen     { opacity: .6; }
   .rooster-invaller { border-color: #a5d6a7; background: #f1f8f1; }
+
 
   /* ── Rooster wizard overlay ────────────────── */
   #rooster-wizard-overlay {
@@ -2835,6 +2962,39 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     color: var(--text); background: var(--bg);
   }
   .export-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+  /* ── Share overlay (mail/WhatsApp) ────────────── */
+  #share-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #share-modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 460px; padding: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
+  }
+  .share-period-choice { display: flex; gap: 10px; flex-wrap: wrap; }
+  .share-radio {
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font-size: .88rem; cursor: pointer;
+    flex: 1; min-width: 140px; justify-content: center;
+    transition: background .15s, border-color .15s;
+  }
+  .share-radio:has(input:checked) {
+    border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent);
+  }
+  #share-tekst {
+    width: 100%; min-height: 220px; font-size: .80rem;
+    font-family: monospace; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; resize: vertical;
+    color: var(--text); background: var(--bg); white-space: pre-wrap;
+  }
+  #btn-share-whatsapp { background: #25D366; border-color: #25D366; color: #fff; }
+  #btn-share-whatsapp:hover { background: #1fb958; }
 
 
   /* ── Google import keuze-dialog ──────────────── */
@@ -3395,6 +3555,37 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
       <button id="btn-export-close" class="btn-ghost">Sluiten</button>
       <button id="btn-export-copy" class="btn-ghost">📋 Kopiëren</button>
       <button id="btn-export-ics" class="btn-primary">📥 Download .ics</button>
+    </div>
+  </div>
+</div>
+
+<div id="share-overlay">
+  <div id="share-modal">
+    <div class="export-title">📨 Rooster delen</div>
+    <div class="export-sub">Stuur een overzichtelijk trainingsrooster naar andere trainers</div>
+
+    <div class="form-row">
+      <label>Periode</label>
+      <div class="share-period-choice">
+        <label class="share-radio">
+          <input type="radio" name="share-periode" value="jan" checked> Tot 31 januari
+        </label>
+        <label class="share-radio">
+          <input type="radio" name="share-periode" value="jul"> Tot 30 juli
+        </label>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Voorbeeld (<span id="share-count"></span> trainingen)</label>
+      <textarea id="share-tekst" readonly></textarea>
+    </div>
+
+    <div class="export-actions">
+      <button id="btn-share-close" class="btn-ghost">Sluiten</button>
+      <button id="btn-share-copy" class="btn-ghost">📋 Kopiëren</button>
+      <button id="btn-share-whatsapp" class="btn-primary">💬 WhatsApp</button>
+      <button id="btn-share-mail" class="btn-primary">📧 Mail</button>
     </div>
   </div>
 </div>
