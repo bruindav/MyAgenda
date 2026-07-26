@@ -1536,6 +1536,18 @@
     });
   }
 
+  // ── Rooster header in-/uitklappen (meer ruimte voor de lijst) ────────
+  function toggleRoosterHeader() {
+    const nowCollapsed = localStorage.getItem("roosterHdrCollapsed") !== "1";
+    localStorage.setItem("roosterHdrCollapsed", nowCollapsed ? "1" : "0");
+    const hdr = document.querySelector(".rooster-header");
+    const leg = document.querySelector(".rooster-legend");
+    if (hdr) hdr.classList.toggle("collapsed", nowCollapsed);
+    if (leg) leg.classList.toggle("collapsed", nowCollapsed);
+    const btn = $("btn-rooster-toggle");
+    if (btn) btn.title = nowCollapsed ? "Toon opties" : "Verberg opties";
+  }
+
   // ── Rooster weergave ──────────────────────────────────
   function renderRooster() {
     const grid = $("calendar-grid");
@@ -1568,13 +1580,17 @@
       return;
     }
 
-    // Header met acties
-    const hdr = el("div", "rooster-header");
+    // Header met acties (in-/uitklapbaar, onthouden per toestel)
+    const collapsed = localStorage.getItem("roosterHdrCollapsed") === "1";
+    const hdr = el("div", "rooster-header" + (collapsed ? " collapsed" : ""));
     hdr.innerHTML = `
       <div class="rooster-hdr-left">
         <span class="rooster-title">🏃 Trainingsrooster ${roosterConfig.jaar || ""}</span>
         <span class="rooster-sub">${roosterConfig.naam1} &amp; ${roosterConfig.naam2} · patroon ${(roosterConfig.patroon||[])[0] ?? ""}/${(roosterConfig.patroon||[])[1] ?? ""} · ${roosterConfig.startDate||""} t/m ${roosterConfig.endDate||""}</span>
       </div>
+      <button class="rooster-hdr-toggle" id="btn-rooster-toggle" title="${collapsed ? "Toon opties" : "Verberg opties"}">
+        <span class="rooster-hdr-toggle-arrow">▾</span>
+      </button>
       <div class="rooster-hdr-actions">
         <button class="btn-ghost btn-sm" id="btn-rooster-edit">✏️ Bewerken</button>
         <button class="btn-ghost btn-sm" id="btn-rooster-share">📨 Delen</button>
@@ -1587,9 +1603,10 @@
     $("btn-rooster-share").addEventListener("click", openShareModal);
     $("btn-rooster-export").addEventListener("click", openExportModal);
     $("btn-rooster-delete").addEventListener("click", deleteRooster);
+    $("btn-rooster-toggle").addEventListener("click", toggleRoosterHeader);
 
     // Legenda
-    const leg = el("div", "rooster-legend");
+    const leg = el("div", "rooster-legend" + (collapsed ? " collapsed" : ""));
     leg.innerHTML = `
       <span class="rleg-item"><span class="rleg-dot" style="background:#00897b"></span>${roosterConfig.naam1} (jij)</span>
       <span class="rleg-item"><span class="rleg-dot" style="background:#5c6bc0"></span>${roosterConfig.naam2}</span>
@@ -2802,19 +2819,36 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     border-bottom: 1px solid var(--border); flex-shrink: 0;
     position: sticky; top: 0; z-index: 5;
   }
-  .rooster-hdr-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .rooster-hdr-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
   .rooster-title    { font-size: 1rem; font-weight: 700; }
   .rooster-sub      { font-size: .80rem; color: var(--muted); overflow-wrap: break-word; }
-  .rooster-hdr-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .rooster-hdr-actions { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
   .btn-sm { padding: 5px 10px !important; font-size: .80rem !important; }
   .btn-danger-sm { color: #d93025 !important; border-color: #f5c6c2 !important; }
 
+  /* Knop om de knoppenrij + legenda in-/uit te klappen, zodat er meer
+     ruimte overblijft voor de roosterlijst zelf. */
+  .rooster-hdr-toggle {
+    border: 1px solid var(--border); background: var(--surface);
+    border-radius: 8px; width: 32px; height: 32px; flex-shrink: 0;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); transition: background .1s;
+  }
+  .rooster-hdr-toggle:hover { background: var(--bg); }
+  .rooster-hdr-toggle-arrow { display: inline-block; transition: transform .2s ease; font-size: .9rem; }
+  .rooster-header.collapsed .rooster-hdr-toggle-arrow { transform: rotate(-90deg); }
+  .rooster-header.collapsed .rooster-hdr-actions { display: none; }
+  .rooster-legend.collapsed { display: none; }
+
   /* Op mobiel: knoppen altijd als vast, volledig zichtbaar 2x2-grid ipv wrap */
   @media(max-width:640px) {
-    .rooster-header { flex-direction: column; align-items: stretch; }
+    .rooster-header { flex-direction: row; flex-wrap: wrap; align-items: center; }
+    .rooster-hdr-left { order: 1; }
+    .rooster-hdr-toggle { order: 2; }
     .rooster-hdr-actions {
-      display: grid; grid-template-columns: 1fr 1fr; width: 100%;
+      order: 3; display: grid; grid-template-columns: 1fr 1fr; width: 100%;
     }
+    .rooster-header.collapsed .rooster-hdr-actions { display: none; }
     .rooster-hdr-actions .btn-danger-sm { grid-column: 1 / -1; }
   }
 
