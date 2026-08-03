@@ -80,6 +80,8 @@
   let hiddenCals    = new Set(); // agenda-IDs die verborgen zijn
   let calGroups     = {};        // { groupName: [calId, calId, ...] } samenvoegen
   let calendars     = [];
+  let calendarOrder = JSON.parse(localStorage.getItem("calendarOrder") || "[]");     // eigen volgorde agenda's (array van calendarId's)
+  let defaultCalId  = localStorage.getItem("defaultCalendarId") || null;             // standaardagenda voor nieuwe afspraken
   let today         = new Date();
   let viewDate      = new Date();
   let currentView   = "month";
@@ -1184,19 +1186,62 @@
   }
 
   // ── SIDEBAR ──────────────────────────────────
+  // ── Agenda-volgorde & standaardagenda (per toestel onthouden) ──
+  function getOrderedCalendars() {
+    const bekend = new Map(calendars.map(c => [c.id, c]));
+    const geordend = [];
+    // Eerst de agenda's in de opgeslagen volgorde (indien nog aanwezig)
+    calendarOrder.forEach(id => {
+      if (bekend.has(id)) { geordend.push(bekend.get(id)); bekend.delete(id); }
+    });
+    // Daarna alle overige (nieuwe) agenda's die nog geen vaste plek hebben
+    bekend.forEach(cal => geordend.push(cal));
+    return geordend;
+  }
+
+  function saveCalendarOrder() {
+    calendarOrder = getOrderedCalendars().map(c => c.id);
+    localStorage.setItem("calendarOrder", JSON.stringify(calendarOrder));
+  }
+
+  function moveCalendar(calId, richting) {
+    const volgorde = getOrderedCalendars().map(c => c.id);
+    const i = volgorde.indexOf(calId);
+    const j = i + richting;
+    if (i < 0 || j < 0 || j >= volgorde.length) return;
+    [volgorde[i], volgorde[j]] = [volgorde[j], volgorde[i]];
+    calendarOrder = volgorde;
+    localStorage.setItem("calendarOrder", JSON.stringify(calendarOrder));
+    renderSidebar();
+  }
+
+  function setDefaultCalendar(calId) {
+    defaultCalId = (defaultCalId === calId) ? null : calId; // nogmaals klikken = uitzetten
+    if (defaultCalId) localStorage.setItem("defaultCalendarId", defaultCalId);
+    else localStorage.removeItem("defaultCalendarId");
+    renderSidebar();
+  }
+
   function renderSidebar() {
     const list = $("cal-list");
     list.innerHTML = "";
-    calendars.forEach(cal => {
+    const geordend = getOrderedCalendars();
+    geordend.forEach((cal, i) => {
       const isOwner = cal.owner === currentUser?.uid;
       const isHidden = hiddenCals.has(cal.id);
+      const isDefault = cal.id === defaultCalId;
       const item = el("div", "cal-item" + (isHidden ? " cal-hidden" : ""));
       item.innerHTML = `
+        <span class="cal-reorder">
+          <button class="cal-move-up" data-calid="${cal.id}" title="Omhoog" ${i === 0 ? "disabled" : ""}>▲</button>
+          <button class="cal-move-down" data-calid="${cal.id}" title="Omlaag" ${i === geordend.length - 1 ? "disabled" : ""}>▼</button>
+        </span>
         <input type="checkbox" class="cal-toggle" data-calid="${cal.id}"
           ${isHidden ? "" : "checked"} title="Tonen/verbergen">
         <span class="cal-dot" style="background:${cal.color};opacity:${isHidden?0.4:1}"></span>
         <span class="cal-name" style="opacity:${isHidden?0.4:1}">${cal.name}</span>
         <span class="cal-item-actions">
+          <button class="cal-default-btn ${isDefault ? "is-default" : ""}" title="${isDefault ? "Standaardagenda voor nieuwe afspraken" : "Instellen als standaardagenda"}" data-calid="${cal.id}">${isDefault ? "★" : "☆"}</button>
           ${isOwner ? `<button class="cal-share-btn" title="Uitnodigingen beheren" data-calid="${cal.id}" data-calname="${cal.name}">👥</button>` : ""}
           ${isOwner ? `<button class="cal-sync-btn" title="Openstaande uitnodigingen verwerken" data-calid="${cal.id}">🔄</button>` : ""}
           <button class="cal-group-btn" title="Samenvoegen" data-calid="${cal.id}" data-calname="${cal.name}">⊕</button>
@@ -1205,6 +1250,19 @@
       `;
       list.appendChild(item);
     });
+
+    // Volgorde wijzigen
+    list.querySelectorAll(".cal-move-up").forEach(btn =>
+      btn.addEventListener("click", e => { e.stopPropagation(); moveCalendar(btn.dataset.calid, -1); })
+    );
+    list.querySelectorAll(".cal-move-down").forEach(btn =>
+      btn.addEventListener("click", e => { e.stopPropagation(); moveCalendar(btn.dataset.calid, +1); })
+    );
+
+    // Standaardagenda instellen
+    list.querySelectorAll(".cal-default-btn").forEach(btn =>
+      btn.addEventListener("click", e => { e.stopPropagation(); setDefaultCalendar(btn.dataset.calid); })
+    );
 
     // Toggle zichtbaarheid
     list.querySelectorAll(".cal-toggle").forEach(cb =>
@@ -1229,14 +1287,6 @@
       btn.addEventListener("click", e => {
         e.stopPropagation();
         openGroepModal(btn.dataset.calid, btn.dataset.calname);
-      })
-    );
-
-    // Sync/verwerk uitnodigingen knoppen
-    list.querySelectorAll(".cal-sync-btn").forEach(btn =>
-      btn.addEventListener("click", async e => {
-        e.stopPropagation();
-        await verwerkInviteRequests(btn.dataset.calid);
       })
     );
 
@@ -1339,10 +1389,11 @@
 
     const sel = $("ev-calendar");
     sel.innerHTML = "";
-    calendars.forEach(cal => {
+    getOrderedCalendars().forEach(cal => {
       const o = document.createElement("option");
       o.value = cal.id; o.textContent = cal.name;
       if (ev && ev.calendarId === cal.id) o.selected = true;
+      if (!ev && cal.id === defaultCalId) o.selected = true;
       sel.appendChild(o);
     });
 
@@ -3191,6 +3242,30 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .cal-shared-badge     { font-size: .75rem; }
   .cal-group-row        { cursor: default; }
   .cal-group-dots       { display: flex; gap: 2px; align-items: center; }
+
+  /* ── Sidebar: volgorde wijzigen & standaardagenda ──────── */
+  .cal-reorder {
+    display: flex; flex-direction: column; flex-shrink: 0; margin-right: 2px;
+  }
+  .cal-move-up, .cal-move-down {
+    border: none; background: none; cursor: pointer; padding: 0;
+    font-size: .58rem; line-height: 1; color: var(--muted);
+    width: 14px; height: 9px; display: flex; align-items: center; justify-content: center;
+  }
+  .cal-move-up:hover:not(:disabled), .cal-move-down:hover:not(:disabled) { color: var(--primary); }
+  .cal-move-up:disabled, .cal-move-down:disabled { opacity: .25; cursor: default; }
+  .cal-default-btn {
+    border: none; background: none; cursor: pointer;
+    font-size: .92rem; padding: 2px 4px; border-radius: 4px;
+    transition: background .1s; line-height: 1; color: #f9a825;
+  }
+  .cal-default-btn:hover { background: #fff8e1; }
+  .cal-default-btn.is-default { color: #f9a825; }
+
+  /* Op mobiel werkt :hover niet betrouwbaar (touch) — knoppen altijd tonen */
+  @media(max-width:640px) {
+    .cal-item-actions { opacity: 1; }
+  }
 
   /* ── Uitnodigingen modal ────────────────────── */
   #uitnodig-overlay, #groep-overlay {
