@@ -1,1 +1,39 @@
 
+name: Ochtendbericht
+
+on:
+  schema:
+    # 05:30 UTC = 07:30 Amsterdam in de zomer (CEST, UTC+2)
+    - cron: '30 5 * * *'
+    # 06:30 UTC = 07:30 Amsterdam in de winter (CET, UTC+1)
+    - cron: '30 6 * * *'
+  workflow_verzending:
+    ingangen:
+      force:
+        description: "Forceer versturen, ook buiten het 07:30-venster (voor testen)"
+        type: boolean
+        default: true
+
+jobs:
+  stuur-bericht:
+    doorloopt: ubuntu-laatste
+    steps:
+      - gebrukt: acties/checkout@v4
+
+      - gebrukt: acties/setup-node@v4
+        met:
+          knoppuntversie: '20'
+
+      - name: Installeer afhankelijkheden
+        werkmap: scripts/ochtendbericht
+        run: npm install
+
+      - name: Stuur ochtendbericht
+        werkmap: scripts/ochtendbericht
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          MIJN_UID: ${ secrets.MIJN_UID }}
+          TELEGRAM_BOT_TOKEN: ${{ geheimen.8688928551:AAESUdGTfKT0le19VSrzDMbijigPS9vspkU }}
+          TELEGRAM_CHAT_ID: ${{ geheimen.6709739481}}
+          FORCE: ${{ ingangen.force && '1' || '0' }}
+        run: node index.js
