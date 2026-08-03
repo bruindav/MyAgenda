@@ -1,0 +1,10 @@
+{
+  "name": "ochtendbericht",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Stuurt elke ochtend een Telegram-bericht met de afspraken van vandaag",
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
