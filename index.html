@@ -535,7 +535,7 @@
               location:     ev.location || "",
               calendarId:   localCal.id,
               gcalImportId: ev.id,
-              members:      [currentUser.uid],
+              members:      calendarMembers(localCal.id),
               createdAt:    Timestamp.now()
             });
             totaalImport++;
@@ -1463,7 +1463,7 @@
       calendarId:  $("ev-calendar").value,
       repeat:      $("ev-repeat").value,
       repeatEnd:   $("ev-repeat-end").value || null,
-      members:     [currentUser.uid],
+      members:     calendarMembers($("ev-calendar").value),
       updatedAt:   Timestamp.now()
     };
 
@@ -1532,6 +1532,19 @@
 
   function getCalendar(id) {
     return calendars.find(c => c.id === id) || null;
+  }
+
+  // BUGFIX: events hebben een eigen "members"-veld (los van het
+  // "members"-veld van de agenda zelf) dat bepaalt wie het event te zien
+  // krijgt. Als een nieuw/bewerkt event alleen met [currentUser.uid]
+  // wordt opgeslagen — ook al staat het in een gedeelde agenda — ziet de
+  // partner het gewoon niet. Deze functie haalt de volledige ledenlijst
+  // van de gekozen agenda op, zodat elk event automatisch met iedereen
+  // wordt gedeeld die ook toegang heeft tot die agenda.
+  function calendarMembers(calId) {
+    const cal = getCalendar(calId);
+    const leden = (cal?.members && cal.members.length) ? cal.members : [currentUser.uid];
+    return leden.includes(currentUser.uid) ? leden : [...leden, currentUser.uid];
   }
 
   function getEventsForDay(date) {
@@ -1864,7 +1877,7 @@
         wie:        week.wie,
         swap:       week.swap,
         notitie:    week.notitie || "",
-        members:    [currentUser.uid],
+        members:    calendarMembers(doelCalId),
         createdAt:  Timestamp.now()
       }));
 
@@ -2217,13 +2230,14 @@ Niet ongedaan te maken.`)) return;
       })
     );
 
-    // 👤+ Geef toegang via uid
+    // 👤+ Geef toegang via uid — en synchroniseer altijd de events
     list.querySelectorAll(".cleanup-share-btn").forEach(btn =>
       btn.addEventListener("click", async () => {
         // Erwin's uid is bekend — vraag ter bevestiging
         const bekendUid = "jSYRY7O3JscTQT6eil3IBn1w9JM2";
         const uid = prompt(
-          "Geef toegang aan Erwin (of iemand anders).\n\n" +
+          "Geef toegang aan Erwin (of iemand anders), of synchroniseer\n" +
+          "bestaande toegang opnieuw (bv. na een Google-import).\n\n" +
           "Erwin's uid: " + bekendUid + "\n\n" +
           "Kopieer bovenstaande uid of voer een ander uid in:",
           bekendUid
@@ -2233,34 +2247,34 @@ Niet ongedaan te maken.`)) return;
         const calData = _cleanupCals.find(c => c.id === calId);
         if (!calData) return;
         const trimUid = uid.trim();
-        if (calData.members.includes(trimUid)) {
-          showToast("Dit uid heeft al toegang", "info"); return;
+
+        // BUGFIX: eerder stopte dit hier al met "heeft al toegang" als het
+        // uid al in de agenda-ledenlijst stond — waardoor events die dat
+        // lid misten (bv. via een Google-import gemaakt ná het delen van
+        // de agenda) nooit werden bijgewerkt. Nu wordt altijd de volledige
+        // ledenlijst van de agenda op elk event gesynchroniseerd.
+        let ledenlijst = calData.members;
+        if (!ledenlijst.includes(trimUid)) {
+          $("cleanup-status").textContent = "Toegang verlenen...";
+          ledenlijst = [...calData.members, trimUid];
+          await updateDoc(doc(db, "calendars", calId), { members: ledenlijst });
         }
-        $("cleanup-status").textContent = "Toegang verlenen...";
-        await updateDoc(doc(db, "calendars", calId), {
-          members: [...calData.members, trimUid]
-        });
+
+        $("cleanup-status").textContent = "Events synchroniseren...";
         const evs = _cleanupEvs.filter(e => e.calendarId === calId);
-        for (let i = 0; i < evs.length; i += 20) {
-          await Promise.all(evs.slice(i, i+20).map(ev => {
-            const em = ev.members || [];
-            if (!em.includes(trimUid))
-              return updateDoc(doc(db, "events", ev.id), { members: [...em, trimUid] });
-          }));
-        }
-        $("cleanup-status").textContent = "Events bijwerken...";
         let bijgewerkt = 0;
         for (let i = 0; i < evs.length; i += 20) {
-          await Promise.all(evs.slice(i, i+20).map(async ev => {
+          await Promise.all(evs.slice(i, i + 20).map(async ev => {
             const em = ev.members || [];
-            if (!em.includes(trimUid)) {
-              await updateDoc(doc(db, "events", ev.id), { members: [...em, trimUid] });
+            const missend = ledenlijst.filter(m => !em.includes(m));
+            if (missend.length) {
+              await updateDoc(doc(db, "events", ev.id), { members: [...em, ...missend] });
               bijgewerkt++;
             }
           }));
-          $("cleanup-status").textContent = "Events: " + Math.min(i+20, evs.length) + "/" + evs.length;
+          $("cleanup-status").textContent = "Events: " + Math.min(i + 20, evs.length) + "/" + evs.length;
         }
-        showToast("✅ Klaar! " + bijgewerkt + "/" + evs.length + " events bijgewerkt. Erwin logt opnieuw in.", "ok");
+        showToast("✅ Klaar! " + bijgewerkt + "/" + evs.length + " events bijgewerkt.", "ok");
         await openCleanupModal();
       })
     );
@@ -3521,7 +3535,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
 
     <div style="background:#e8f0fe;border-radius:8px;padding:10px;font-size:.82rem;line-height:1.5;color:#1558b0">
       <strong>Hoe werkt dit?</strong><br>
-      • <strong>Erwin toegang geven</strong> — voegt Erwin toe aan die agenda en al zijn events<br>
+      • <strong>Erwin toegang geven</strong> — voegt Erwin toe aan die agenda én synchroniseert al zijn events (ook als hij al lid was, bv. na een Google-import)<br>
       • <strong>Verwijder agenda</strong> — verwijdert de agenda inclusief alle bijhorende events<br>
       • <strong>Zwevende events</strong> — events zonder agenda (rommel van oude tests)<br>
       • <strong>Wis ALLES</strong> — start helemaal opnieuw (leegt de database volledig)
@@ -3548,27 +3562,6 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
 </div>
 
 
-
-<!-- Cleanup Modal -->
-<div id="cleanup-overlay">
-  <div id="cleanup-modal">
-    <div class="cleanup-title">🧹 Opschonen</div>
-    <div id="cleanup-status">Laden...</div>
-    <div id="cleanup-ev-info"></div>
-
-    <div class="cleanup-actions">
-      <button id="btn-cleanup-zwevend" class="btn-orange">🗑 Zwevende events</button>
-      <button id="btn-cleanup-rooster" class="btn-orange">🗑 Rooster-events</button>
-    </div>
-
-    <div style="font-size:.78rem;color:var(--muted)">Agenda's (klik 🗑 om te verwijderen incl. alle events):</div>
-    <div id="cleanup-cal-list"></div>
-
-    <div class="modal-actions">
-      <button id="btn-cleanup-sluit" class="btn-ghost">Sluiten</button>
-    </div>
-  </div>
-</div>
 
 <!-- Google Agenda keuze-dialog -->
 <div id="gcal-keuze-overlay">
