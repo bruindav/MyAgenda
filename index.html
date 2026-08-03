@@ -721,11 +721,19 @@
       const isJij   = uid === currentUser?.uid;
       const row = el("div", "uitnodig-row");
       row.innerHTML = `
-        <span class="uitnodig-email" title="${uid}">${isJij ? "Jij" : uid.slice(0, 10) + "…"}${isOwner ? " · eigenaar" : ""}</span>
+        <span class="uitnodig-email">
+          ${isJij ? "Jij" : ""}${isJij && isOwner ? " · " : ""}${isOwner ? "eigenaar" : ""}${(isJij || isOwner) ? " · " : ""}<code class="uitnodig-uid-code">${uid.slice(0, 12)}…</code>
+        </span>
+        <button class="uitnodig-uid-kopieer" data-uid="${uid}" title="Volledig uid kopiëren">📋</button>
         ${(!isOwner && !isJij) ? `<button class="uitnodig-lid-verwijder" data-uid="${uid}" title="Verwijderen">✕ Verwijderen</button>` : ""}
       `;
       lst.appendChild(row);
     });
+    lst.querySelectorAll(".uitnodig-uid-kopieer").forEach(btn =>
+      btn.addEventListener("click", () => {
+        navigator.clipboard.writeText(btn.dataset.uid).then(() => showToast("📋 uid gekopieerd", "ok"));
+      })
+    );
     lst.querySelectorAll(".uitnodig-lid-verwijder").forEach(btn =>
       btn.addEventListener("click", async () => {
         if (!confirm("Deze persoon geen toegang meer geven tot deze agenda?")) return;
@@ -3376,7 +3384,13 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     padding: 6px 10px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--bg);
   }
-  .uitnodig-email   { flex: 1; font-size: .88rem; }
+  .uitnodig-email   { flex: 1; font-size: .88rem; min-width: 0; }
+  .uitnodig-uid-code { font-family: monospace; font-size: .82rem; color: var(--muted); }
+  .uitnodig-uid-kopieer {
+    border: 1px solid var(--border); background: var(--surface); cursor: pointer;
+    border-radius: 6px; padding: 3px 7px; font-size: .82rem; flex-shrink: 0;
+  }
+  .uitnodig-uid-kopieer:hover { background: var(--bg); }
   .uitnodig-revoke, .uitnodig-lid-verwijder {
     border: 1px solid #f5c6c2; background: none; color: #d93025;
     border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: .78rem;
