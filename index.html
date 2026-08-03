@@ -666,10 +666,32 @@
           count++;
         }
       }
-      if (count > 0) showToast(`✅ ${count} uitnodiging(en) verwerkt`, "ok");
-      else showToast("Geen openstaande uitnodigingen gevonden", "info");
+      if (count > 0) {
+        showToast(`✅ ${count} uitnodiging(en) verwerkt`, "ok");
+      } else {
+        // TIJDELIJKE DIAGNOSE (fix-56): laat exact zien wat er gevonden is,
+        // zodat we kunnen zien of het verzoek van Erwin er wel/niet is en
+        // of het e-mailadres precies overeenkomt.
+        const gevondenEmails = reqSnap.docs.map(d => d.data().email).join(", ") || "(geen enkel verzoek gevonden)";
+        const uitgenodigd    = invites.join(", ") || "(niemand uitgenodigd op deze agenda)";
+        const alLid          = (calData.members || []).join(", ");
+        console.log("[Diagnose uitnodigingen]", {
+          calId, calNaam: calData.name,
+          uitnodigingenOpAgenda: invites,
+          gevondenInviteRequests: reqSnap.docs.map(d => d.data()),
+          huidigeLeden: calData.members
+        });
+        alert(
+          "Geen match gevonden. Diagnose:\n\n" +
+          "📋 Uitgenodigd op deze agenda:\n" + uitgenodigd + "\n\n" +
+          "📥 Gevonden inlog-verzoeken (invite_requests):\n" + gevondenEmails + "\n\n" +
+          "👤 Huidige leden (uid's):\n" + alLid + "\n\n" +
+          "(Ook gelogd in de browserconsole voor meer detail.)"
+        );
+      }
     } catch(e) {
       showToast("Fout bij verwerken: " + e.message, "error");
+      alert("Fout bij verwerken: " + e.code + " — " + e.message);
     }
   }
 
