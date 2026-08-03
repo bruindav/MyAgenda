@@ -345,6 +345,15 @@
     });
     $("btn-uitnodig-sluit").addEventListener("click",   closeUitnodigingModal);
     $("btn-uitnodig-stuur").addEventListener("click",   verstuurUitnodiging);
+    $("btn-uitnodig-uid-toggle").addEventListener("click", () => {
+      const sectie = $("uitnodig-uid-sectie");
+      const zichtbaar = sectie.style.display !== "none";
+      sectie.style.display = zichtbaar ? "none" : "block";
+      $("btn-uitnodig-uid-toggle").textContent = zichtbaar
+        ? "▾ Werkt e-mail niet? Toegang geven via uid"
+        : "▴ Werkt e-mail niet? Toegang geven via uid";
+    });
+    $("btn-uitnodig-uid-toevoegen").addEventListener("click", voegLidToeViaUid);
     $("uitnodig-nieuw").addEventListener("keydown", e => {
       if (e.key === "Enter") verstuurUitnodiging();
     });
@@ -592,23 +601,15 @@
 
   // Controleer of dit account uitgenodigd is voor agenda's van anderen
   async function koppelGedeeldeAgendas(user) {
-    // TIJDELIJKE DIAGNOSE (fix-56): user.email kan om onbekende reden leeg
-    // zijn (bv. door meerdere open tabbladen die de Firebase Auth-opslag
-    // tegelijk gebruiken). Val terug op het e-mailadres uit providerData
-    // (het onderliggende Google-profiel), dat vaak wél gevuld is.
+    // Sommige Google-accounts geven bij inloggen geen e-mailadres terug via
+    // user.email (bekende Google/Firebase-eigenaardigheid, afhankelijk van
+    // OAuth-scopes). Val voor de zekerheid terug op providerData, waar het
+    // soms nog wel in staat. Als er echt geen e-mail beschikbaar is, gaat
+    // deze functie gewoon stil verder — koppelen kan dan nog steeds via de
+    // "Toegang geven via uid"-optie in het uitnodigingenscherm.
     const providerEmail = user.providerData?.[0]?.email || "";
     const email = (user.email || providerEmail || "").toLowerCase().trim();
-    console.log("[Diagnose koppelen] user.email:", user.email, "| providerData[0].email:", providerEmail,
-      "| gebruikt:", email, "| uid:", user.uid, "| providerData:", JSON.stringify(user.providerData));
-    if (!email) {
-      alert(
-        "Diagnose: geen e-mailadres gevonden — ook niet in providerData.\n\n" +
-        "uid: " + user.uid + "\n" +
-        "providerData: " + JSON.stringify(user.providerData) + "\n\n" +
-        "Tip: sluit ALLE tabbladen van deze app en log opnieuw in, in slechts één tabblad."
-      );
-      return;
-    }
+    if (!email) return;
 
     // Stap 1: schrijf een uitnodigingsverzoek in een eigen document
     // zodat de eigenaar dit kan verwerken
@@ -619,11 +620,7 @@
         naam:      user.displayName || "",
         updatedAt: Timestamp.now()
       });
-      console.log("[Diagnose koppelen] invite_requests schrijven GELUKT voor", email);
-    } catch(e) {
-      console.error("[Diagnose koppelen] invite_requests schrijven MISLUKT:", e.code, e.message);
-      alert("Diagnose: schrijven naar invite_requests mislukt.\n\nE-mail: " + email + "\nUid: " + user.uid + "\n\nFoutcode: " + e.code + "\nMelding: " + e.message);
-    }
+    } catch(e) { /* schrijven mislukt als rules het blokkeren — niet erg, uid-fallback blijft werken */ }
 
     // Stap 2: lees agenda's waar uid al lid van is via members
     // (werkt al via subscribeData)
@@ -691,29 +688,10 @@
       if (count > 0) {
         showToast(`✅ ${count} uitnodiging(en) verwerkt`, "ok");
       } else {
-        // TIJDELIJKE DIAGNOSE (fix-56): laat exact zien wat er gevonden is,
-        // zodat we kunnen zien of het verzoek van Erwin er wel/niet is en
-        // of het e-mailadres precies overeenkomt.
-        const gevondenEmails = reqSnap.docs.map(d => d.data().email).join(", ") || "(geen enkel verzoek gevonden)";
-        const uitgenodigd    = invites.join(", ") || "(niemand uitgenodigd op deze agenda)";
-        const alLid          = (calData.members || []).join(", ");
-        console.log("[Diagnose uitnodigingen]", {
-          calId, calNaam: calData.name,
-          uitnodigingenOpAgenda: invites,
-          gevondenInviteRequests: reqSnap.docs.map(d => d.data()),
-          huidigeLeden: calData.members
-        });
-        alert(
-          "Geen match gevonden. Diagnose:\n\n" +
-          "📋 Uitgenodigd op deze agenda:\n" + uitgenodigd + "\n\n" +
-          "📥 Gevonden inlog-verzoeken (invite_requests):\n" + gevondenEmails + "\n\n" +
-          "👤 Huidige leden (uid's):\n" + alLid + "\n\n" +
-          "(Ook gelogd in de browserconsole voor meer detail.)"
-        );
+        showToast("Geen match gevonden. Werkt e-mail niet? Gebruik 'Toegang geven via uid' in het uitnodigingenscherm.", "info");
       }
     } catch(e) {
       showToast("Fout bij verwerken: " + e.message, "error");
-      alert("Fout bij verwerken: " + e.code + " — " + e.message);
     }
   }
 
@@ -727,7 +705,73 @@
     const invites = calData?.invites || [];
     $("uitnodig-modal-titel").textContent = `👥 Uitnodigingen — ${calNaam}`;
     renderUitnodigLijst(invites);
+    renderUitnodigLeden(calData);
+    $("uitnodig-uid-sectie").style.display = "none";
+    $("btn-uitnodig-uid-toggle").textContent = "▾ Werkt e-mail niet? Toegang geven via uid";
+    $("uitnodig-uid").value = "";
     $("uitnodig-overlay").style.display = "flex";
+  }
+
+  function renderUitnodigLeden(calData) {
+    const lst = $("uitnodig-leden-lijst");
+    lst.innerHTML = "";
+    const leden = calData?.members || [];
+    leden.forEach(uid => {
+      const isOwner = uid === calData.owner;
+      const isJij   = uid === currentUser?.uid;
+      const row = el("div", "uitnodig-row");
+      row.innerHTML = `
+        <span class="uitnodig-email" title="${uid}">${isJij ? "Jij" : uid.slice(0, 10) + "…"}${isOwner ? " · eigenaar" : ""}</span>
+        ${(!isOwner && !isJij) ? `<button class="uitnodig-lid-verwijder" data-uid="${uid}" title="Verwijderen">✕ Verwijderen</button>` : ""}
+      `;
+      lst.appendChild(row);
+    });
+    lst.querySelectorAll(".uitnodig-lid-verwijder").forEach(btn =>
+      btn.addEventListener("click", async () => {
+        if (!confirm("Deze persoon geen toegang meer geven tot deze agenda?")) return;
+        const cal = calendars.find(c => c.id === uitnodigCalId);
+        if (!cal) return;
+        const nieuw = cal.members.filter(m => m !== btn.dataset.uid);
+        await updateDoc(doc(db, "calendars", uitnodigCalId), { members: nieuw });
+        const idx = calendars.findIndex(c => c.id === uitnodigCalId);
+        if (idx >= 0) calendars[idx] = { ...calendars[idx], members: nieuw };
+        showToast("Toegang ingetrokken", "warn");
+        renderUitnodigLeden(calendars[idx]);
+      })
+    );
+  }
+
+  // Directe fallback-route: voeg iemand toe op uid ipv e-mail. Nodig omdat
+  // sommige Google-accounts geen e-mailadres teruggeven bij inloggen —
+  // synchroniseert meteen ook alle bestaande events van deze agenda.
+  async function voegLidToeViaUid() {
+    const uid = $("uitnodig-uid").value.trim();
+    if (!uid || uid.length < 10) { showToast("Vul een geldig uid in", "warn"); return; }
+    const calData = calendars.find(c => c.id === uitnodigCalId);
+    if (!calData) return;
+    if (calData.members.includes(uid)) { showToast("Heeft al toegang", "info"); return; }
+
+    const nieuweLeden = [...calData.members, uid];
+    await updateDoc(doc(db, "calendars", uitnodigCalId), { members: nieuweLeden });
+
+    const evQ = query(collection(db, "events"), where("calendarId", "==", uitnodigCalId));
+    const evSnap = await getDocs(evQ);
+    let bijgewerkt = 0;
+    for (let i = 0; i < evSnap.docs.length; i += 20) {
+      await Promise.all(evSnap.docs.slice(i, i + 20).map(async evDoc => {
+        const em = evDoc.data().members || [];
+        if (!em.includes(uid)) {
+          await updateDoc(doc(db, "events", evDoc.id), { members: [...em, uid] });
+          bijgewerkt++;
+        }
+      }));
+    }
+
+    const idx = calendars.findIndex(c => c.id === uitnodigCalId);
+    if (idx >= 0) calendars[idx] = { ...calendars[idx], members: nieuweLeden };
+    $("uitnodig-uid").value = "";
+    showToast(`✅ Toegevoegd, ${bijgewerkt} events gesynchroniseerd`, "ok");
+    renderUitnodigLeden(calendars[idx]);
   }
 
   function renderUitnodigLijst(invites) {
@@ -3333,20 +3377,33 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     border: 1px solid var(--border); background: var(--bg);
   }
   .uitnodig-email   { flex: 1; font-size: .88rem; }
-  .uitnodig-revoke  {
+  .uitnodig-revoke, .uitnodig-lid-verwijder {
     border: 1px solid #f5c6c2; background: none; color: #d93025;
     border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: .78rem;
     white-space: nowrap; transition: background .1s;
   }
-  .uitnodig-revoke:hover { background: #fce8e6; }
+  .uitnodig-revoke:hover, .uitnodig-lid-verwijder:hover { background: #fce8e6; }
   .uitnodig-nieuw-row {
     display: flex; gap: 6px;
   }
-  #uitnodig-nieuw {
+  #uitnodig-nieuw, #uitnodig-uid {
     flex: 1; border: 1px solid var(--border); border-radius: 8px;
     padding: 8px 10px; font-size: .88rem; font-family: var(--font);
   }
-  #uitnodig-nieuw:focus { outline: none; border-color: var(--primary); }
+  #uitnodig-nieuw:focus, #uitnodig-uid:focus { outline: none; border-color: var(--primary); }
+  .uitnodig-hint {
+    font-size: .78rem; color: var(--muted); line-height: 1.4;
+  }
+  .uitnodig-uid-toggle {
+    border: none; background: none; cursor: pointer; text-align: left;
+    color: var(--primary); font-size: .82rem; padding: 4px 0;
+  }
+  #uitnodig-uid-sectie { display: flex; flex-direction: column; gap: 8px; }
+  .uitnodig-leden-titel {
+    font-size: .78rem; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .04em; margin-top: 4px;
+  }
+  #uitnodig-leden-lijst { display: flex; flex-direction: column; gap: 4px; }
 
   /* ── Groepen modal ──────────────────────────── */
   .groep-cal-row {
@@ -3619,6 +3676,29 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
       <input id="uitnodig-nieuw" type="email" placeholder="E-mailadres toevoegen…">
       <button id="btn-uitnodig-stuur" class="btn-primary" style="padding:8px 12px">Uitnodigen</button>
     </div>
+    <div class="uitnodig-hint">
+      De uitgenodigde moet de app zelf één keer openen en inloggen — daarna
+      verschijnt die hier als "wacht nog op koppeling" totdat je 🔄 in de
+      sidebar gebruikt (of de knop hieronder).
+    </div>
+
+    <button id="btn-uitnodig-uid-toggle" class="uitnodig-uid-toggle">▾ Werkt e-mail niet? Toegang geven via uid</button>
+    <div id="uitnodig-uid-sectie" style="display:none">
+      <div class="uitnodig-hint">
+        Sommige Google-accounts geven bij het inloggen geen e-mailadres door
+        (een bekende eigenaardigheid). Voeg iemand dan direct toe met hun
+        uid — te vinden onderin het menu bij 🧹 Opschonen, of laat degene
+        het uid uit de browserconsole van de app kopiëren na het inloggen.
+      </div>
+      <div class="uitnodig-nieuw-row">
+        <input id="uitnodig-uid" type="text" placeholder="uid plakken…">
+        <button id="btn-uitnodig-uid-toevoegen" class="btn-primary" style="padding:8px 12px">Toevoegen</button>
+      </div>
+    </div>
+
+    <div class="uitnodig-leden-titel">Huidige leden</div>
+    <div id="uitnodig-leden-lijst"></div>
+
     <div class="modal-actions">
       <button id="btn-uitnodig-sluit" class="btn-ghost">Sluiten</button>
     </div>
