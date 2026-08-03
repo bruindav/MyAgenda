@@ -107,7 +107,10 @@
   // ── Auth ─────────────────────────────────────
   document.addEventListener("DOMContentLoaded", () => {
     $("btn-login").addEventListener("click", () => {
-      signInWithPopup(auth, new GoogleAuthProvider()).catch(console.error);
+      const provider = new GoogleAuthProvider();
+      provider.addScope("email");
+      provider.addScope("profile");
+      signInWithPopup(auth, provider).catch(console.error);
     });
     // Debounce logout om click-through na popup te voorkomen
     let _loginTime = 0;
