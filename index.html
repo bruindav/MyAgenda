@@ -2380,14 +2380,10 @@ Niet ongedaan te maken.`)) return;
     // 👤+ Geef toegang via uid — en synchroniseer altijd de events
     list.querySelectorAll(".cleanup-share-btn").forEach(btn =>
       btn.addEventListener("click", async () => {
-        // Erwin's uid is bekend — vraag ter bevestiging
-        const bekendUid = "jSYRY7O3JscTQT6eil3IBn1w9JM2";
         const uid = prompt(
-          "Geef toegang aan Erwin (of iemand anders), of synchroniseer\n" +
-          "bestaande toegang opnieuw (bv. na een Google-import).\n\n" +
-          "Erwin's uid: " + bekendUid + "\n\n" +
-          "Kopieer bovenstaande uid of voer een ander uid in:",
-          bekendUid
+          "Geef toegang aan iemand op uid, of synchroniseer bestaande\n" +
+          "toegang opnieuw (bv. na een Google-import).\n\n" +
+          "Plak hier het uid (te vinden via 👥 Uitnodigingen → Huidige leden):"
         );
         if (!uid || uid.trim().length < 10) return;
         const calId   = btn.dataset.calid;
