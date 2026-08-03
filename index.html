@@ -589,11 +589,21 @@
 
   // Controleer of dit account uitgenodigd is voor agenda's van anderen
   async function koppelGedeeldeAgendas(user) {
-    const email = (user.email || "").toLowerCase().trim();
-    // TIJDELIJKE DIAGNOSE (fix-56)
-    console.log("[Diagnose koppelen] user.email:", user.email, "| gebruikt:", email, "| uid:", user.uid);
+    // TIJDELIJKE DIAGNOSE (fix-56): user.email kan om onbekende reden leeg
+    // zijn (bv. door meerdere open tabbladen die de Firebase Auth-opslag
+    // tegelijk gebruiken). Val terug op het e-mailadres uit providerData
+    // (het onderliggende Google-profiel), dat vaak wél gevuld is.
+    const providerEmail = user.providerData?.[0]?.email || "";
+    const email = (user.email || providerEmail || "").toLowerCase().trim();
+    console.log("[Diagnose koppelen] user.email:", user.email, "| providerData[0].email:", providerEmail,
+      "| gebruikt:", email, "| uid:", user.uid, "| providerData:", JSON.stringify(user.providerData));
     if (!email) {
-      alert("Diagnose: geen e-mailadres gevonden op je account (user.email is leeg). Daardoor wordt er niets vastgelegd.");
+      alert(
+        "Diagnose: geen e-mailadres gevonden — ook niet in providerData.\n\n" +
+        "uid: " + user.uid + "\n" +
+        "providerData: " + JSON.stringify(user.providerData) + "\n\n" +
+        "Tip: sluit ALLE tabbladen van deze app en log opnieuw in, in slechts één tabblad."
+      );
       return;
     }
 
