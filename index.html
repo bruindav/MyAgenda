@@ -590,7 +590,12 @@
   // Controleer of dit account uitgenodigd is voor agenda's van anderen
   async function koppelGedeeldeAgendas(user) {
     const email = (user.email || "").toLowerCase().trim();
-    if (!email) return;
+    // TIJDELIJKE DIAGNOSE (fix-56)
+    console.log("[Diagnose koppelen] user.email:", user.email, "| gebruikt:", email, "| uid:", user.uid);
+    if (!email) {
+      alert("Diagnose: geen e-mailadres gevonden op je account (user.email is leeg). Daardoor wordt er niets vastgelegd.");
+      return;
+    }
 
     // Stap 1: schrijf een uitnodigingsverzoek in een eigen document
     // zodat de eigenaar dit kan verwerken
@@ -601,7 +606,11 @@
         naam:      user.displayName || "",
         updatedAt: Timestamp.now()
       });
-    } catch(e) { /* schrijven mislukt als rules het blokkeren — niet erg */ }
+      console.log("[Diagnose koppelen] invite_requests schrijven GELUKT voor", email);
+    } catch(e) {
+      console.error("[Diagnose koppelen] invite_requests schrijven MISLUKT:", e.code, e.message);
+      alert("Diagnose: schrijven naar invite_requests mislukt.\n\nE-mail: " + email + "\nUid: " + user.uid + "\n\nFoutcode: " + e.code + "\nMelding: " + e.message);
+    }
 
     // Stap 2: lees agenda's waar uid al lid van is via members
     // (werkt al via subscribeData)
