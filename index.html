@@ -2469,17 +2469,27 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #topbar-row1 {
     height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 12px;
   }
-  #topbar h2 { font-size: 1.25rem; color: var(--primary); font-weight: 500; margin-right: 2px; }
+  #app-logo { color: var(--primary); display: flex; align-items: center; margin-right: 2px; flex-shrink: 0; }
+  #topbar-spacer { flex: 1; }
+  @media(min-width:640px) { #topbar-spacer { display: none; } }
   #btn-today, #btn-prev, #btn-next {
     border: none; background: none; cursor: pointer; padding: 5px 9px;
     border-radius: 6px; font-size: .88rem; color: var(--text); transition: background .15s;
-    white-space: nowrap;
+    white-space: nowrap; flex-shrink: 0;
   }
   #btn-today { border: 1px solid var(--border); }
   @media(max-width:380px) { #btn-today { display: none; } }
   #btn-prev:hover, #btn-next:hover, #btn-today:hover { background: var(--bg); }
+  /* Eigen rij voor datumnavigatie: title krijgt hier echt de ruimte om
+     volledig leesbaar te zijn (was eerder samengeperst met menu/logo/
+     avatar/uitloggen in dezelfde rij, vooral op smalle schermen). */
+  #topbar-datenav {
+    height: 40px; display: flex; align-items: center; gap: 4px;
+    padding: 0 8px 4px 12px;
+  }
   #view-title { flex: 1; font-size: 1rem; font-weight: 600; min-width: 0;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                text-align: center; }
   #user-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
   #user-name { font-size: .82rem; color: var(--muted); display: none; }
   @media(min-width:700px) { #user-name { display: inline; } }
@@ -2511,9 +2521,10 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   @media(min-width:640px) {
     #topbar { flex-direction: row; height: 52px; align-items: center;
               padding: 0 16px; gap: 8px; }
-    #topbar-row1 { height: auto; padding: 0; flex: 1; gap: 8px; }
+    #topbar-row1 { height: auto; padding: 0; flex: 0 0 auto; gap: 8px; }
+    #topbar-datenav { flex: 1; height: auto; padding: 0; }
     #topbar-row2 { padding: 0; overflow: visible; }
-    #topbar h2 { margin-right: 4px; }
+    #app-logo { margin-right: 4px; }
   }
 
   /* ── Layout ─────────────────────────────────── */
@@ -3290,15 +3301,26 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   <div id="topbar">
     <div id="topbar-row1">
       <button id="btn-menu" title="Menu">☰</button>
-      <h2>📅</h2>
-      <button id="btn-today">Vandaag</button>
-      <button id="btn-prev">&#8249;</button>
-      <button id="btn-next">&#8250;</button>
-      <span id="view-title"></span>
+      <span id="app-logo" title="Agenda">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="5" width="18" height="16" rx="3" stroke="currentColor" stroke-width="2"/>
+          <path d="M3 9.5h18" stroke="currentColor" stroke-width="2"/>
+          <path d="M8 3v3M16 3v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="8" cy="14" r="1.4" fill="currentColor"/>
+          <circle cx="12" cy="14" r="1.4" fill="currentColor"/>
+        </svg>
+      </span>
+      <span id="topbar-spacer"></span>
       <button id="btn-theme-toggle" title="Donker thema aan/uit">🌙</button>
       <img id="user-avatar" src="" alt="avatar">
       <span id="user-name"></span>
       <button id="btn-logout">Uitloggen</button>
+    </div>
+    <div id="topbar-datenav">
+      <button id="btn-today">Vandaag</button>
+      <button id="btn-prev">&#8249;</button>
+      <span id="view-title"></span>
+      <button id="btn-next">&#8250;</button>
     </div>
     <div id="topbar-row2">
       <button class="view-btn active" data-view="month">Maand</button>
