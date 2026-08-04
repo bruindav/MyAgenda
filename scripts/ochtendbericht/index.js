@@ -1,12 +1,17 @@
 // Ochtendbericht: leest de afspraken van vandaag uit Firestore en stuurt
-// ze via Telegram. Draait als geplande GitHub Action (zie
-// .github/workflows/ochtendbericht.yml).
+// ze via Telegram, voor één of meerdere personen. Draait als geplande
+// GitHub Action (zie .github/workflows/ochtendbericht.yml).
 //
 // Nodig als omgevingsvariabelen (GitHub Secrets):
-//   MY_UID                   - jouw Firebase Auth uid
-//   TELEGRAM_BOT_TOKEN       - token van je Telegram-bot (via @BotFather)
-//   TELEGRAM_CHAT_ID         - jouw Telegram chat-id (via @userinfobot)
-//   FIREBASE_SERVICE_ACCOUNT - volledige inhoud van het service-account .json-bestand
+//   ONTVANGERS                - JSON-array met ontvangers, bv.:
+//       [{"naam":"Dave","uid":"...","chatId":"..."},
+//        {"naam":"Erwin","uid":"...","chatId":"..."}]
+//   TELEGRAM_BOT_TOKEN        - token van de Telegram-bot (via @BotFather)
+//   FIREBASE_SERVICE_ACCOUNT  - volledige inhoud van het service-account .json-bestand
+//
+// Voor terugwaartse compatibiliteit werkt ook nog de oude opzet met losse
+// MY_UID + TELEGRAM_CHAT_ID secrets (voor precies één ontvanger), als
+// ONTVANGERS niet is ingesteld.
 //
 // De workflow draait 2x per dag (voor zomer- en wintertijd); dit script
 // bepaalt zelf of het echt binnen het verzendvenster (07:20-07:40
@@ -15,10 +20,23 @@
 
 const admin = require("firebase-admin");
 
-const MY_UID    = process.env.MY_UID;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
 const FORCE     = process.env.FORCE === "1" || process.env.FORCE === "true";
+
+function laadOntvangers() {
+  if (process.env.ONTVANGERS) {
+    const lijst = JSON.parse(process.env.ONTVANGERS);
+    if (!Array.isArray(lijst) || lijst.length === 0) {
+      throw new Error("ONTVANGERS moet een niet-lege JSON-array zijn");
+    }
+    return lijst.map(o => ({ naam: o.naam || "?", uid: o.uid, chatId: String(o.chatId) }));
+  }
+  // Terugwaartse compatibiliteit: oude losse secrets
+  if (process.env.MY_UID && process.env.TELEGRAM_CHAT_ID) {
+    return [{ naam: "jou", uid: process.env.MY_UID, chatId: process.env.TELEGRAM_CHAT_ID }];
+  }
+  throw new Error("Geen ontvangers geconfigureerd: zet ONTVANGERS (JSON-array), of MY_UID + TELEGRAM_CHAT_ID voor één ontvanger.");
+}
 
 const EVENT_ICONS = {
   afspraak:   "📅",
@@ -103,12 +121,12 @@ function bouwBericht(todayStr, vandaagEvents, calendars) {
   return `📅 *${titel}*\n\n${regels.join("\n")}`;
 }
 
-async function verstuurTelegram(tekst) {
+async function verstuurTelegram(chatId, tekst) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: CHAT_ID, text: tekst, parse_mode: "Markdown" }),
+    body: JSON.stringify({ chat_id: chatId, text: tekst, parse_mode: "Markdown" }),
   });
   const json = await res.json();
   if (!json.ok) {
@@ -116,10 +134,32 @@ async function verstuurTelegram(tekst) {
   }
 }
 
+async function verstuurVoorOntvanger(db, calendars, todayStr, ontvanger) {
+  const evSnap = await db.collection("events")
+    .where("members", "array-contains", ontvanger.uid)
+    .get();
+
+  const events = [];
+  evSnap.forEach(d => events.push({ id: d.id, ...d.data() }));
+
+  const vandaagEvents = events
+    .filter(ev => valtVandaag(ev, todayStr))
+    .sort((a, b) => {
+      const ta = a.allDay ? "" : (a.startTime || "00:00");
+      const tb = b.allDay ? "" : (b.startTime || "00:00");
+      return ta.localeCompare(tb);
+    });
+
+  const bericht = bouwBericht(todayStr, vandaagEvents, calendars);
+  await verstuurTelegram(ontvanger.chatId, bericht);
+  console.log(`Ochtendbericht verstuurd naar ${ontvanger.naam}:\n${bericht}\n`);
+}
+
 async function main() {
-  if (!MY_UID || !BOT_TOKEN || !CHAT_ID || !process.env.FIREBASE_SERVICE_ACCOUNT) {
-    throw new Error("Een of meer verplichte environment-variabelen ontbreken (MY_UID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, FIREBASE_SERVICE_ACCOUNT)");
+  if (!BOT_TOKEN || !process.env.FIREBASE_SERVICE_ACCOUNT) {
+    throw new Error("TELEGRAM_BOT_TOKEN en/of FIREBASE_SERVICE_ACCOUNT ontbreekt");
   }
+  const ontvangers = laadOntvangers();
 
   const { dateStr: todayStr, hour, minute } = nowAmsterdam();
   const nuInMinuten   = hour * 60 + minute;
@@ -134,28 +174,22 @@ async function main() {
   });
   const db = admin.firestore();
 
-  const [calSnap, evSnap] = await Promise.all([
-    db.collection("calendars").get(),
-    db.collection("events").where("members", "array-contains", MY_UID).get(),
-  ]);
-
+  const calSnap = await db.collection("calendars").get();
   const calendars = {};
   calSnap.forEach(d => { calendars[d.id] = d.data(); });
 
-  const events = [];
-  evSnap.forEach(d => events.push({ id: d.id, ...d.data() }));
+  const resultaten = await Promise.allSettled(
+    ontvangers.map(o => verstuurVoorOntvanger(db, calendars, todayStr, o))
+  );
 
-  const vandaagEvents = events
-    .filter(ev => valtVandaag(ev, todayStr))
-    .sort((a, b) => {
-      const ta = a.allDay ? "" : (a.startTime || "00:00");
-      const tb = b.allDay ? "" : (b.startTime || "00:00");
-      return ta.localeCompare(tb);
-    });
+  const mislukt = resultaten
+    .map((r, i) => ({ r, naam: ontvangers[i].naam }))
+    .filter(x => x.r.status === "rejected");
 
-  const bericht = bouwBericht(todayStr, vandaagEvents, calendars);
-  await verstuurTelegram(bericht);
-  console.log("Ochtendbericht verstuurd:\n" + bericht);
+  if (mislukt.length > 0) {
+    mislukt.forEach(x => console.error(`Mislukt voor ${x.naam}:`, x.r.reason));
+    throw new Error(`${mislukt.length} van de ${ontvangers.length} berichten mislukt`);
+  }
 }
 
 main().catch(err => {
