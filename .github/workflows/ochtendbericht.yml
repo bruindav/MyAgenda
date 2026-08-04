@@ -1,11 +1,11 @@
-name: Ochtendbericht 
+name: Ochtendbericht
 
 on:
-  schema:
+  schedule:
     - cron: '30 5 * * *'
     - cron: '30 6 * * *'
-  workflow_verzending:
-    ingangen:
+  workflow_dispatch:
+    inputs:
       force:
         description: "Forceer versturen, ook buiten het 07:30-venster (voor testen)"
         type: boolean
@@ -13,25 +13,23 @@ on:
 
 jobs:
   stuur-bericht:
-    doorloopt: ubuntu-laatste
+    runs-on: ubuntu-latest
     steps:
-      - gebrukt: acties/checkout@v4
+      - uses: actions/checkout@v4
 
-      - gebrukt: acties/setup-node@v4
-        met:
-          knoppuntversie: '20'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Installeer afhankelijkheden
-        werkmap: scripts/ochtendbericht
+      - name: Installeer dependencies
+        working-directory: scripts/ochtendbericht
         run: npm install
 
       - name: Stuur ochtendbericht
-        werkmap: scripts/ochtendbericht
+        working-directory: scripts/ochtendbericht
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          MIJN_UID: ${{ geheimen.MIJN_UID }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ONTVANGERS: ${{ secrets.ONTVANGERS }}
-          FORCE: ${{ ingangen.force && '1' || '0' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          FORCE: ${{ inputs.force && '1' || '0' }}
         run: node index.js
