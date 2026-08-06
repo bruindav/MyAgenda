@@ -13,10 +13,16 @@
 // MY_UID + TELEGRAM_CHAT_ID secrets (voor precies één ontvanger), als
 // ONTVANGERS niet is ingesteld.
 //
-// De workflow draait 2x per dag (voor zomer- en wintertijd); dit script
-// bepaalt zelf of het echt binnen het verzendvenster (07:20-07:40
-// Europe/Amsterdam) valt en stuurt anders niets - zo blijft het altijd
-// 07:30 lokale tijd, ook rond de klok-omzetting.
+// BELANGRIJK over de timing: GitHub Actions' "schedule"-trigger is niet
+// exact — bij drukte kan een geplande run makkelijk uren later pas echt
+// starten. Daarom werkt dit script met twee lagen:
+//   1) Een ruim venster (06:00-13:00 Europe/Amsterdam) i.p.v. een streng
+//      venster van een paar minuten rond 07:30.
+//   2) Een "al verstuurd vandaag?"-check in Firestore per ontvanger, zodat
+//      het bericht nooit dubbel verstuurd wordt als de workflow vaker
+//      binnen dat venster draait (de workflow is bewust ingesteld om elke
+//      30 minuten te proberen, zodat het bericht zo snel mogelijk na
+//      07:30 binnenkomt zodra GitHub de run daadwerkelijk uitvoert).
 
 const admin = require("firebase-admin");
 
@@ -135,6 +141,15 @@ async function verstuurTelegram(chatId, tekst) {
 }
 
 async function verstuurVoorOntvanger(db, calendars, todayStr, ontvanger) {
+  // Al verstuurd vandaag? Dan overslaan (voorkomt dubbele berichten als
+  // de workflow meerdere keren binnen het venster draait).
+  const logRef = db.collection("ochtendbericht_log").doc(`${ontvanger.uid}_${todayStr}`);
+  const logSnap = await logRef.get();
+  if (logSnap.exists && !FORCE) {
+    console.log(`Al verstuurd vandaag naar ${ontvanger.naam}, overgeslagen.`);
+    return;
+  }
+
   const evSnap = await db.collection("events")
     .where("members", "array-contains", ontvanger.uid)
     .get();
@@ -152,6 +167,7 @@ async function verstuurVoorOntvanger(db, calendars, todayStr, ontvanger) {
 
   const bericht = bouwBericht(todayStr, vandaagEvents, calendars);
   await verstuurTelegram(ontvanger.chatId, bericht);
+  await logRef.set({ verstuurdOp: admin.firestore.Timestamp.now() });
   console.log(`Ochtendbericht verstuurd naar ${ontvanger.naam}:\n${bericht}\n`);
 }
 
@@ -162,10 +178,14 @@ async function main() {
   const ontvangers = laadOntvangers();
 
   const { dateStr: todayStr, hour, minute } = nowAmsterdam();
-  const nuInMinuten   = hour * 60 + minute;
-  const doelInMinuten = 7 * 60 + 30;
-  if (!FORCE && Math.abs(nuInMinuten - doelInMinuten) > 10) {
-    console.log(`Niet binnen het verzendvenster (nu ${hour}:${String(minute).padStart(2, "0")} Europe/Amsterdam). Niets verstuurd.`);
+  const nuInMinuten = hour * 60 + minute;
+  // Ruim venster (06:00-13:00 lokale tijd) omdat GitHub's geplande taken
+  // met flinke vertraging kunnen draaien - de "al verstuurd?"-check per
+  // ontvanger voorkomt dat dit ooit tot dubbele berichten leidt.
+  const vensterStart = 6 * 60;
+  const vensterEind  = 13 * 60;
+  if (!FORCE && (nuInMinuten < vensterStart || nuInMinuten > vensterEind)) {
+    console.log(`Buiten het ochtendvenster (nu ${hour}:${String(minute).padStart(2, "0")} Europe/Amsterdam). Niets verstuurd.`);
     return;
   }
 
