@@ -975,6 +975,7 @@
 
   async function openMeldingenModal() {
     $("meldingen-status").textContent = "Laden…";
+    $("meldingen-uid").textContent = currentUser?.uid || "(geen currentUser!)";
     $("meldingen-overlay").style.display = "flex";
     try {
       const snap = await getDoc(doc(db, "meldingsinstellingen", currentUser.uid));
@@ -4062,6 +4063,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     </div>
 
     <div id="meldingen-status" class="uitnodig-hint"></div>
+    <div class="uitnodig-hint">Ingelogd als uid: <code id="meldingen-uid" class="uitnodig-uid-code"></code></div>
 
     <div class="modal-actions">
       <button id="btn-meldingen-sluit" class="btn-ghost">Sluiten</button>
