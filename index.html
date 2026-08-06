@@ -38,7 +38,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, updateDoc, deleteDoc, setDoc, getDocs, doc,
+  import { getFirestore, collection, addDoc, updateDoc, deleteDoc, setDoc, getDoc, getDocs, doc,
     onSnapshot, query, where, Timestamp }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -297,6 +297,14 @@
     // Donker/licht thema
     $("btn-theme-toggle").textContent = document.documentElement.classList.contains("dark-theme") ? "☀️" : "🌙";
     $("btn-theme-toggle").addEventListener("click", toggleTheme);
+    $("btn-meldingen").addEventListener("click", openMeldingenModal);
+    $("btn-meldingen-sluit").addEventListener("click", () => { $("meldingen-overlay").style.display = "none"; });
+    $("btn-meldingen-opslaan").addEventListener("click", slaMeldingenOp);
+    $("meld-telegram-actief").addEventListener("change", updateMeldSubvelden);
+    $("meld-email-actief").addEventListener("change", updateMeldSubvelden);
+    $("meldingen-overlay").addEventListener("click", e => {
+      if (e.target === $("meldingen-overlay")) $("meldingen-overlay").style.display = "none";
+    });
 
     // Google Calendar sync knop
     $("btn-gcal-sync").addEventListener("click", startGcalSync);
@@ -985,6 +993,63 @@
       if (!ev.calendarId) return true;
       return !hiddenCals.has(ev.calendarId);
     });
+  }
+
+  // ── Meldingen-instellingen (ochtendbericht) ───────────
+  function updateMeldSubvelden() {
+    $("meld-telegram-veld").classList.toggle("disabled", !$("meld-telegram-actief").checked);
+    $("meld-email-veld").classList.toggle("disabled", !$("meld-email-actief").checked);
+  }
+
+  async function openMeldingenModal() {
+    $("meldingen-status").textContent = "Laden…";
+    $("meldingen-uid").textContent = currentUser?.uid || "(geen currentUser!)";
+    $("meldingen-overlay").style.display = "flex";
+    try {
+      const snap = await getDoc(doc(db, "meldingsinstellingen", currentUser.uid));
+      const data = snap.exists() ? snap.data() : {};
+      $("meld-telegram-actief").checked = !!data.telegramActief;
+      $("meld-telegram-chatid").value   = data.telegramChatId || "";
+      $("meld-email-actief").checked    = !!data.emailActief;
+      $("meld-email-adres").value       = data.emailAdres || currentUser.email || "";
+      $("meld-bij-leeg").checked        = data.meldenBijLeeg !== false; // standaard aan
+      updateMeldSubvelden();
+      $("meldingen-status").textContent = "";
+    } catch (e) {
+      $("meldingen-status").textContent = "Kon instellingen niet laden: " + e.message;
+    }
+  }
+
+  async function slaMeldingenOp() {
+    const telegramActief = $("meld-telegram-actief").checked;
+    const emailActief    = $("meld-email-actief").checked;
+    const telegramChatId = $("meld-telegram-chatid").value.trim();
+    const emailAdres     = $("meld-email-adres").value.trim();
+
+    if (telegramActief && !telegramChatId) {
+      $("meldingen-status").textContent = "Vul je Telegram chat-id in, of zet Telegram uit.";
+      return;
+    }
+    if (emailActief && !emailAdres) {
+      $("meldingen-status").textContent = "Vul een e-mailadres in, of zet e-mail uit.";
+      return;
+    }
+
+    $("meldingen-status").textContent = "Opslaan…";
+    try {
+      await setDoc(doc(db, "meldingsinstellingen", currentUser.uid), {
+        naam: currentUser.displayName || currentUser.email || "Onbekend",
+        telegramActief, telegramChatId,
+        emailActief, emailAdres,
+        meldenBijLeeg: $("meld-bij-leeg").checked,
+        updatedAt: Timestamp.now(),
+      });
+      $("meldingen-status").textContent = "";
+      showToast("✅ Instellingen opgeslagen", "ok");
+      $("meldingen-overlay").style.display = "none";
+    } catch (e) {
+      $("meldingen-status").textContent = "Opslaan mislukt: " + e.message;
+    }
   }
 
   // ── Donker/licht thema ────────────────────────
@@ -2678,11 +2743,11 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #user-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
   #user-name { font-size: .82rem; color: var(--muted); display: none; }
   @media(min-width:700px) { #user-name { display: inline; } }
-  #btn-theme-toggle {
+  #btn-theme-toggle, #btn-meldingen {
     border: none; background: none; cursor: pointer; font-size: 1.05rem;
     padding: 4px 6px; border-radius: 6px; line-height: 1; flex-shrink: 0;
   }
-  #btn-theme-toggle:hover { background: var(--bg); }
+  #btn-theme-toggle:hover, #btn-meldingen:hover { background: var(--bg); }
   #btn-logout {
     border: none; background: none; cursor: pointer; font-size: .78rem;
     color: var(--muted); padding: 4px 6px; border-radius: 4px; white-space: nowrap;
@@ -3311,6 +3376,34 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #btn-share-whatsapp { background: #25D366; border-color: #25D366; color: #fff; }
   #btn-share-whatsapp:hover { background: #1fb958; }
 
+  /* ── Meldingen-instellingen ────────────────────── */
+  #meldingen-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #meldingen-modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 440px; padding: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
+  }
+  .meld-checkbox-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: .92rem; font-weight: 600; cursor: pointer;
+  }
+  .meld-subveld {
+    margin: 8px 0 0 26px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .meld-subveld.disabled { opacity: .45; pointer-events: none; }
+  #meld-telegram-chatid, #meld-email-adres {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: .88rem; font-family: var(--font);
+  }
+  #meld-telegram-chatid:focus, #meld-email-adres:focus { outline: none; border-color: var(--primary); }
+  #meldingen-status { min-height: 1em; }
+
 
   /* ── Google import keuze-dialog ──────────────── */
   #gcal-keuze-overlay {
@@ -3539,6 +3632,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
         </svg>
       </span>
       <span id="topbar-spacer"></span>
+      <button id="btn-meldingen" title="Ochtendbericht instellen">🔔</button>
       <button id="btn-theme-toggle" title="Donker thema aan/uit">🌙</button>
       <img id="user-avatar" src="" alt="avatar">
       <span id="user-name"></span>
@@ -3958,6 +4052,50 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
       <button id="btn-share-copy" class="btn-ghost">📋 Kopiëren</button>
       <button id="btn-share-whatsapp" class="btn-primary">💬 WhatsApp</button>
       <button id="btn-share-mail" class="btn-primary">📧 Mail</button>
+    </div>
+  </div>
+</div>
+
+<div id="meldingen-overlay">
+  <div id="meldingen-modal">
+    <div class="export-title">🔔 Ochtendbericht instellen</div>
+    <div class="export-sub">Kies hoe en of je 's ochtends een bericht wilt met je afspraken van vandaag.</div>
+
+    <div class="form-row">
+      <label class="meld-checkbox-label">
+        <input type="checkbox" id="meld-telegram-actief"> Via Telegram
+      </label>
+      <div id="meld-telegram-veld" class="meld-subveld">
+        <input id="meld-telegram-chatid" type="text" placeholder="Jouw Telegram chat-id">
+        <div class="uitnodig-hint">
+          Open <a href="https://t.me/AgendaDaveBot" target="_blank" rel="noopener">t.me/AgendaDaveBot</a>,
+          stuur een bericht (bv. "hoi"), en zoek daarna je chat-id op via
+          <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>.
+        </div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label class="meld-checkbox-label">
+        <input type="checkbox" id="meld-email-actief"> Via e-mail
+      </label>
+      <div id="meld-email-veld" class="meld-subveld">
+        <input id="meld-email-adres" type="email" placeholder="jouw@email.com">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label class="meld-checkbox-label">
+        <input type="checkbox" id="meld-bij-leeg"> Ook melden als er geen afspraken zijn
+      </label>
+    </div>
+
+    <div id="meldingen-status" class="uitnodig-hint"></div>
+    <div class="uitnodig-hint">Ingelogd als uid: <code id="meldingen-uid" class="uitnodig-uid-code"></code></div>
+
+    <div class="modal-actions">
+      <button id="btn-meldingen-sluit" class="btn-ghost">Sluiten</button>
+      <button id="btn-meldingen-opslaan" class="btn-primary">Opslaan</button>
     </div>
   </div>
 </div>
