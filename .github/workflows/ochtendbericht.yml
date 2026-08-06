@@ -1,4 +1,4 @@
-name: Ochtendbericht 
+name: Ochtendbericht
 
 on:
   schedule:
