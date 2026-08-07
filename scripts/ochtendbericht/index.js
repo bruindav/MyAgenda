@@ -40,6 +40,15 @@ const EVENT_ICONS = {
   training:   "🏃",
 };
 
+// Voor deze types tonen we het label i.p.v. het generieke "Hele dag" bij
+// een dag-vullende afspraak, bv. "Verjaardag Peter" i.p.v. "Hele dag Peter".
+const EVENT_LABELS = {
+  verjaardag: "Verjaardag",
+  vakantie:   "Vakantie",
+  bijzonder:  "Bijzondere dag",
+  sterfdag:   "Sterfdag",
+};
+
 let mailTransporter = null;
 function getMailTransporter() {
   if (!mailTransporter) {
@@ -115,6 +124,14 @@ function titelVoorDag(todayStr) {
   return `${dagNamen[dateObj.getDay()]} ${dg} ${maanden[mo - 1]} ${jr}`;
 }
 
+// Label voor de tijdsaanduiding van een event. Hele-dag-afspraken tonen
+// normaal "Hele dag", maar dat leest onhandig bij bv. een verjaardag
+// ("Hele dag Peter") - daarvoor tonen we liever het type ("Verjaardag Peter").
+function labelVoorEvent(ev) {
+  if (!ev.allDay) return ev.startTime || "";
+  return EVENT_LABELS[ev.type] || "Hele dag";
+}
+
 function bouwTelegramBericht(todayStr, vandaagEvents, calendars) {
   const titel = titelVoorDag(todayStr);
   if (vandaagEvents.length === 0) {
@@ -122,7 +139,7 @@ function bouwTelegramBericht(todayStr, vandaagEvents, calendars) {
   }
   const regels = vandaagEvents.map(ev => {
     const icon = EVENT_ICONS[ev.type] || (ev.gcalImportId ? "📆" : "📅");
-    const tijd = ev.allDay ? "Hele dag" : (ev.startTime || "");
+    const tijd = labelVoorEvent(ev);
     const calNaam = calendars[ev.calendarId]?.name;
     const titelTekst = escapeMarkdown(ev.title || "(geen titel)");
     return `${icon} ${tijd ? `*${tijd}* ` : ""}${titelTekst}${calNaam ? ` _(${escapeMarkdown(calNaam)})_` : ""}`;
@@ -143,14 +160,14 @@ function bouwEmailBericht(todayStr, vandaagEvents, calendars) {
   }
 
   const textRegels = vandaagEvents.map(ev => {
-    const tijd = ev.allDay ? "Hele dag" : (ev.startTime || "");
+    const tijd = labelVoorEvent(ev);
     const calNaam = calendars[ev.calendarId]?.name;
     return `${tijd ? tijd + " - " : ""}${ev.title || "(geen titel)"}${calNaam ? ` (${calNaam})` : ""}`;
   });
 
   const htmlRegels = vandaagEvents.map(ev => {
     const icon = EVENT_ICONS[ev.type] || (ev.gcalImportId ? "📆" : "📅");
-    const tijd = ev.allDay ? "Hele dag" : (ev.startTime || "");
+    const tijd = labelVoorEvent(ev);
     const calNaam = calendars[ev.calendarId]?.name;
     return `<li>${icon} ${tijd ? `<strong>${escapeHtml(tijd)}</strong> ` : ""}${escapeHtml(ev.title || "(geen titel)")}${calNaam ? ` <span style="color:#888">(${escapeHtml(calNaam)})</span>` : ""}</li>`;
   });
