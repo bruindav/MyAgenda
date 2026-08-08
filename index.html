@@ -187,7 +187,8 @@
       const anyOverlay = [
         "week-menu-overlay","groep-overlay","uitnodig-overlay",
         "export-overlay","rooster-wizard-overlay","gcal-keuze-overlay",
-        "detail-overlay","modal-overlay","share-overlay"
+        "detail-overlay","modal-overlay","share-overlay",
+        "meldingen-overlay","cleanup-overlay"
       ].find(id => $(id) && $(id).style.display === "flex");
 
       if (anyOverlay) {
@@ -201,6 +202,8 @@
         else if (anyOverlay === "gcal-keuze-overlay")     closeGcalKeuzeDialog();
         else if (anyOverlay === "detail-overlay")  closeDetail();
         else if (anyOverlay === "modal-overlay")   closeModal();
+        else if (anyOverlay === "meldingen-overlay") { $("meldingen-overlay").style.display = "none"; }
+        else if (anyOverlay === "cleanup-overlay")   { $("cleanup-overlay").style.display = "none"; }
         // Push weer een state zodat de app niet verlaten wordt
         pushNav();
       } else {
@@ -539,6 +542,7 @@
       list.appendChild(row);
     });
     $("gcal-keuze-overlay").style.display = "flex";
+    pushNav();
   }
 
   function closeGcalKeuzeDialog() {
@@ -790,6 +794,7 @@
     $("btn-uitnodig-uid-toggle").textContent = "▾ Werkt e-mail niet? Toegang geven via uid";
     $("uitnodig-uid").value = "";
     $("uitnodig-overlay").style.display = "flex";
+    pushNav();
   }
 
   function renderUitnodigLeden(calData) {
@@ -947,6 +952,7 @@
       lst.innerHTML = `<div style="color:var(--muted);font-size:.85rem">Geen andere agenda's beschikbaar.</div>`;
     }
     $("groep-overlay").style.display = "flex";
+    pushNav();
   }
 
   function closeGroepModal() {
@@ -1049,6 +1055,7 @@
     $("meldingen-status").textContent = "Laden…";
     $("meldingen-uid").textContent = currentUser?.uid || "(geen currentUser!)";
     $("meldingen-overlay").style.display = "flex";
+    pushNav();
     try {
       const snap = await getDoc(doc(db, "meldingsinstellingen", currentUser.uid));
       const data = snap.exists() ? snap.data() : {};
@@ -1654,6 +1661,7 @@
     d.dataset.evid = ev.id || "";
     d._ev = ev;
     d.style.display = "flex";
+    pushNav();
   }
 
   function closeDetail() {
@@ -1669,6 +1677,7 @@
 
     editingEvent = ev;
     $("modal-overlay").style.display = "flex";
+    pushNav();
 
     const sel = $("ev-calendar");
     sel.innerHTML = "";
@@ -1719,6 +1728,7 @@
     // Eenvoudig read-only detail popup voor Google Agenda events
     const overlay = $("modal-overlay");
     overlay.style.display = "flex";
+    pushNav();
     $("modal-title-text").textContent = "📆 Google Agenda (alleen lezen)";
     $("btn-modal-delete").style.display = "none";
     $("btn-modal-save").style.display   = "none";
@@ -2218,6 +2228,7 @@
 
     const ov = $("rooster-wizard-overlay");
     ov.style.display = "flex";
+    pushNav();
     $("rw-naam1").value      = naam1;
     $("rw-naam2").value      = naam2;
     $("rw-patroon1").value   = pat1;
@@ -2395,6 +2406,7 @@
     $("wmenu-geen-reden").style.display = week.geen ? "flex" : "none";
 
     $("week-menu-overlay").style.display = "flex";
+    pushNav();
     e.stopPropagation();
   }
 
@@ -2449,6 +2461,7 @@
   // ── Export ────────────────────────────────────────────
   function openExportModal() {
     $("export-overlay").style.display = "flex";
+    pushNav();
     renderExportPreview("naam2"); // standaard: export voor vriend
   }
   function closeExportModal() { $("export-overlay").style.display = "none"; }
@@ -2526,6 +2539,7 @@
   // ── Delen (mail / WhatsApp) ─────────────────────────────
   function openShareModal() {
     $("share-overlay").style.display = "flex";
+    pushNav();
     const checked = document.querySelector('input[name="share-periode"]:checked');
     renderSharePreview(checked ? checked.value : "jan");
   }
@@ -2625,6 +2639,7 @@
 
   async function openCleanupModal() {
     $("cleanup-overlay").style.display = "flex";
+    pushNav();
     $("cleanup-status").textContent = "Laden...";
     $("cleanup-cal-list").innerHTML  = "";
     $("cleanup-ev-info").textContent = "";
