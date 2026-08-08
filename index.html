@@ -308,6 +308,20 @@
 
     // Google Calendar sync knop
     $("btn-gcal-sync").addEventListener("click", startGcalSync);
+    $("btn-ics-import").addEventListener("click", () => $("ics-file-input").click());
+    $("ics-file-input").addEventListener("change", async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const tekst = await file.text();
+      const events = parseICS(tekst);
+      openIcsKeuzeModal(events);
+      e.target.value = ""; // zelfde bestand opnieuw kunnen kiezen
+    });
+    $("btn-ics-annuleer").addEventListener("click", () => { $("ics-keuze-overlay").style.display = "none"; });
+    $("btn-ics-import-bevestig").addEventListener("click", bevestigIcsImport);
+    $("ics-keuze-overlay").addEventListener("click", e => {
+      if (e.target === $("ics-keuze-overlay")) $("ics-keuze-overlay").style.display = "none";
+    });
 
     // Opschonen
     $("btn-cleanup").addEventListener("click", openCleanupModal);
@@ -449,6 +463,130 @@
     if (t.includes("bijzonder") || t.includes("feestdag") || t.includes("jubileum"))
       return "bijzonder";
     return "afspraak";
+  }
+
+  // ── .ics-bestand importeren (hotels, vluchten, reserveringen) ──
+  let icsGevondenEvents = [];
+
+  function unescapeICS(s) {
+    return s.replace(/\\n/gi, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
+  }
+
+  function parseICSDatum(waarde) {
+    // Hele-dag: "YYYYMMDD" (8 tekens). Met tijd: "YYYYMMDDTHHMMSS", evt.
+    // gevolgd door "Z" voor UTC.
+    const jr = waarde.slice(0, 4), mnd = waarde.slice(4, 6), dg = waarde.slice(6, 8);
+    if (waarde.length === 8) {
+      return { datum: `${jr}-${mnd}-${dg}`, tijd: null, allDay: true };
+    }
+    const uur = waarde.slice(9, 11), min = waarde.slice(11, 13), sec = waarde.slice(13, 15) || "00";
+    if (waarde.endsWith("Z")) {
+      // UTC-tijd — omzetten naar lokale tijd
+      const utc = new Date(Date.UTC(+jr, +mnd - 1, +dg, +uur, +min, +sec));
+      return {
+        datum: `${utc.getFullYear()}-${String(utc.getMonth() + 1).padStart(2, "0")}-${String(utc.getDate()).padStart(2, "0")}`,
+        tijd: `${String(utc.getHours()).padStart(2, "0")}:${String(utc.getMinutes()).padStart(2, "0")}`,
+        allDay: false,
+      };
+    }
+    return { datum: `${jr}-${mnd}-${dg}`, tijd: `${uur}:${min}`, allDay: false };
+  }
+
+  function parseICS(tekst) {
+    // Regels "unfolden": een regel die begint met spatie/tab is een
+    // vervolg van de vorige regel (RFC 5545 line folding).
+    const ruweRegels = tekst.split(/\r\n|\n|\r/);
+    const regels = [];
+    ruweRegels.forEach(regel => {
+      if ((regel.startsWith(" ") || regel.startsWith("\t")) && regels.length) {
+        regels[regels.length - 1] += regel.slice(1);
+      } else {
+        regels.push(regel);
+      }
+    });
+
+    const gevonden = [];
+    let huidig = null;
+    regels.forEach(regel => {
+      if (regel === "BEGIN:VEVENT") { huidig = {}; return; }
+      if (regel === "END:VEVENT") { if (huidig && huidig.title) gevonden.push(huidig); huidig = null; return; }
+      if (!huidig) return;
+      const idx = regel.indexOf(":");
+      if (idx === -1) return;
+      const key = regel.slice(0, idx).split(";")[0].toUpperCase();
+      const waarde = regel.slice(idx + 1);
+      if (key === "SUMMARY") huidig.title = unescapeICS(waarde);
+      else if (key === "LOCATION") huidig.location = unescapeICS(waarde);
+      else if (key === "DESCRIPTION") huidig.description = unescapeICS(waarde);
+      else if (key === "DTSTART" && waarde) Object.assign(huidig, { start: parseICSDatum(waarde) });
+      else if (key === "DTEND" && waarde) Object.assign(huidig, { eind: parseICSDatum(waarde) });
+    });
+    return gevonden;
+  }
+
+  function openIcsKeuzeModal(events) {
+    icsGevondenEvents = events;
+    const sel = $("ics-agenda-select");
+    sel.innerHTML = "";
+    getOrderedCalendars().forEach(cal => {
+      const o = document.createElement("option");
+      o.value = cal.id; o.textContent = cal.name;
+      sel.appendChild(o);
+    });
+
+    const lijst = $("ics-event-list");
+    lijst.innerHTML = "";
+    events.forEach((ev, i) => {
+      const row = el("div", "ics-event-row");
+      const datumLabel = ev.start
+        ? (ev.start.allDay ? ev.start.datum : `${ev.start.datum} ${ev.start.tijd || ""}`)
+        : "(geen datum gevonden)";
+      row.innerHTML = `
+        <input type="checkbox" class="ics-event-check" data-idx="${i}" checked>
+        <div class="ics-event-info">
+          <div class="ics-event-titel">${ev.title}</div>
+          <div class="ics-event-details">${datumLabel}${ev.location ? " · " + ev.location : ""}</div>
+        </div>
+      `;
+      lijst.appendChild(row);
+    });
+
+    $("ics-keuze-sub").textContent = events.length
+      ? `${events.length} afspra${events.length === 1 ? "ak" : "ken"} gevonden in het bestand:`
+      : "Geen afspraken gevonden in dit bestand.";
+    $("ics-keuze-overlay").style.display = "flex";
+  }
+
+  async function bevestigIcsImport() {
+    const calendarId = $("ics-agenda-select").value;
+    const geselecteerd = Array.from($("ics-event-list").querySelectorAll(".ics-event-check:checked"))
+      .map(cb => icsGevondenEvents[Number(cb.dataset.idx)]);
+
+    if (geselecteerd.length === 0) { showToast("Niets geselecteerd om te importeren", "warn"); return; }
+
+    let gelukt = 0;
+    for (const ev of geselecteerd) {
+      const start = ev.start || { datum: toDateStr(new Date()), tijd: null, allDay: true };
+      const eind = ev.eind || start;
+      await addDoc(collection(db, "events"), {
+        title:       ev.title,
+        type:        detecteerType(ev.title),
+        allDay:      start.allDay,
+        startDate:   start.datum,
+        endDate:     eind.datum || start.datum,
+        startTime:   start.tijd || "",
+        endTime:     eind.tijd || "",
+        description: [ev.location, ev.description].filter(Boolean).join("\n"),
+        calendarId,
+        repeat:      "none",
+        repeatEnd:   null,
+        members:     calendarMembers(calendarId),
+        createdAt:   Timestamp.now(),
+      });
+      gelukt++;
+    }
+    $("ics-keuze-overlay").style.display = "none";
+    showToast(`✅ ${gelukt} afspra${gelukt === 1 ? "ak" : "ken"} geïmporteerd`, "ok");
   }
 
   // Stap 1: haal lijst van agenda's op en toon keuze-dialog
@@ -2832,6 +2970,14 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #btn-gcal-sync:hover { background: #e6f4ea; }
   #gcal-status { font-size: .75rem; color: var(--muted); padding: 4px 8px; }
 
+  /* .ics import button in sidebar */
+  #btn-ics-import {
+    margin-top: 8px; border: 1px solid var(--primary); background: none; cursor: pointer;
+    font-size: .82rem; color: var(--primary); padding: 6px 10px; border-radius: 8px;
+    display: flex; align-items: center; gap: 6px; transition: background .15s; width: 100%;
+  }
+  #btn-ics-import:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+
   /* ── Calendar area ──────────────────────────── */
   #cal-area {
     flex: 1; display: flex; flex-direction: column; overflow: hidden;
@@ -3421,6 +3567,36 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .gcal-keuze-title { font-size: 1.05rem; font-weight: 700; }
   .gcal-keuze-sub   { font-size: .84rem; color: var(--muted); line-height: 1.5; }
   #gcal-cal-list { display: flex; flex-direction: column; gap: 6px; }
+
+  /* ── .ics importeren ───────────────────────── */
+  #ics-keuze-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #ics-keuze-modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 440px; padding: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    animation: popIn .18s ease; max-height: 88dvh; overflow-y: auto;
+  }
+  #ics-agenda-select {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: .88rem; font-family: var(--font);
+    width: 100%; background: var(--surface); color: var(--text);
+  }
+  #ics-event-list { display: flex; flex-direction: column; gap: 6px; }
+  .ics-event-row {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg);
+  }
+  .ics-event-row input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+  .ics-event-info { flex: 1; min-width: 0; }
+  .ics-event-titel { font-size: .88rem; font-weight: 600; }
+  .ics-event-details { font-size: .78rem; color: var(--muted); margin-top: 1px; }
+
   .gcal-cal-row {
     display: flex; align-items: flex-start; gap: 10px;
     padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
@@ -3669,6 +3845,14 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
       <button id="btn-gcal-sync">📆 Importeren uit Google</button>
       <div id="gcal-status"></div>
 
+      <div class="sidebar-label" style="margin-top:12px">Bestand importeren</div>
+      <button id="btn-ics-import">📥 .ics-bestand importeren</button>
+      <input type="file" id="ics-file-input" accept=".ics,text/calendar" style="display:none">
+      <div class="uitnodig-hint" style="padding:2px 4px">
+        Voor hotel-, vlucht- en reserveringsbevestigingen: gebruik de
+        "Toevoegen aan agenda"-knop in de mail, en importeer dat bestandje hier.
+      </div>
+
       <div class="sidebar-label" style="margin-top:12px">Beheer</div>
       <button id="btn-cleanup" style="margin-top:4px;border:1px solid #e65100;background:none;cursor:pointer;font-size:.82rem;color:#e65100;padding:6px 10px;border-radius:8px;display:flex;align-items:center;gap:6px;transition:background .15s;width:100%">
         🧹 Opschonen
@@ -3907,6 +4091,22 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div class="modal-actions">
       <button id="btn-gcal-annuleer" class="btn-ghost">Annuleren</button>
       <button id="btn-gcal-import" class="btn-primary">📥 Importeren</button>
+    </div>
+  </div>
+</div>
+
+<div id="ics-keuze-overlay">
+  <div id="ics-keuze-modal">
+    <div class="gcal-keuze-title">📥 .ics importeren</div>
+    <div class="gcal-keuze-sub" id="ics-keuze-sub">Gevonden afspraken in het bestand:</div>
+    <div id="ics-cal-kiezer" class="form-row">
+      <label>Importeren naar agenda</label>
+      <select id="ics-agenda-select"></select>
+    </div>
+    <div id="ics-event-list"></div>
+    <div class="modal-actions">
+      <button id="btn-ics-annuleer" class="btn-ghost">Annuleren</button>
+      <button id="btn-ics-import-bevestig" class="btn-primary">📥 Importeren</button>
     </div>
   </div>
 </div>
