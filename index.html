@@ -1139,7 +1139,7 @@
         pill.style.color = contrastText(kleur);
         // Geen tijden in maandgrid — alleen icoon + titel
         // Geen icoon in kleine maandcellen — meer ruimte voor tekst
-        pill.textContent = ev.title;
+        pill.textContent = (ev.title || "").trim();
         pill.addEventListener("click", e => {
           e.stopPropagation();
           // Klik op event → open dagweergave voor die dag
@@ -1203,7 +1203,7 @@
       const adCol = el("div", "allday-col");
       getEventsForDay(d).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
         const bar = el("div", "allday-bar");
-        bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + ev.title + "</span>";
+        bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + (ev.title || "").trim() + "</span>";
         const kleurAd = eventColor(ev);
         bar.style.background = kleurAd;
         bar.style.color = contrastText(kleurAd);
@@ -1256,7 +1256,7 @@
     const adRowDay = el("div", "allday-row allday-row-day");
     getEventsForDay(viewDate).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
       const bar = el("div", "allday-bar");
-      bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + ev.title + "</span>";
+      bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + (ev.title || "").trim() + "</span>";
       bar.style.background = eventColor(ev);
       bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
       adRowDay.appendChild(bar);
@@ -1315,7 +1315,7 @@
     pill.innerHTML = "<span class='tp-icon'>" + eventIcon(ev) + "</span>"
       + "<span class='tp-text'>"
       + (ev.startTime ? "<span class='tp-time'>" + ev.startTime.slice(0,5) + "</span>" : "")
-      + "<span class='tp-title'>" + ev.title + "</span>"
+      + "<span class='tp-title'>" + (ev.title || "").trim() + "</span>"
       + "</span>";
     pill.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
     col.appendChild(pill);
@@ -2896,12 +2896,12 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     display: block;
     color: #fff;
     border-radius: 3px;
-    padding: 1px 4px;
-    font-size: .72rem;
+    padding: 1px 3px;
+    font-size: .66rem;
     margin-bottom: 1px;
     cursor: pointer;
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;
     white-space: nowrap;
     width: 100%;
     box-sizing: border-box;
@@ -2942,8 +2942,8 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     gap: 2px;
     color: #fff;
     border-radius: 3px;
-    padding: 2px 5px;
-    font-size: .72rem;
+    padding: 2px 4px;
+    font-size: .66rem;
     cursor: pointer;
     overflow: hidden;
     white-space: nowrap;
@@ -2951,7 +2951,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   }
   .allday-bar:hover { filter: brightness(1.1); }
   .adbar-icon  { font-size: .6em; flex-shrink: 0; line-height: 1; }
-  .adbar-title { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .adbar-title { overflow: hidden; text-overflow: clip; flex: 1; min-width: 0; }
 
   /* ═══════════════════════════════════════════
      WEEK / DAG WEERGAVE
@@ -3043,7 +3043,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     position: absolute;
     left: 2px; right: 2px;
     border-radius: 4px;
-    padding: 2px 4px;
+    padding: 2px 3px;
     color: #fff;
     cursor: pointer;
     overflow: hidden;
@@ -3056,9 +3056,9 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   }
   .timed-pill:hover { filter: brightness(1.1); }
   .tp-icon  { font-size: .65em; flex-shrink: 0; padding-top: 1px; line-height: 1; }
-  .tp-text  { display: flex; flex-direction: column; min-width: 0; font-size: .72rem; line-height: 1.2; }
-  .tp-time  { font-size: .65rem; opacity: .85; white-space: nowrap; }
-  .tp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .tp-text  { display: flex; flex-direction: column; min-width: 0; font-size: .66rem; line-height: 1.2; }
+  .tp-time  { font-size: .6rem; opacity: .85; white-space: nowrap; }
+  .tp-title { overflow: hidden; text-overflow: clip; white-space: nowrap; font-weight: 600; }
 
   /* Heel-dag events boven in week/dag: worden nog niet apart getoond */
 
