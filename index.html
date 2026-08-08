@@ -188,7 +188,8 @@
         "week-menu-overlay","groep-overlay","uitnodig-overlay",
         "export-overlay","rooster-wizard-overlay","gcal-keuze-overlay",
         "detail-overlay","modal-overlay","share-overlay",
-        "meldingen-overlay","cleanup-overlay"
+        "meldingen-overlay","cleanup-overlay",
+        "taken-overlay","taak-form-overlay"
       ].find(id => $(id) && $(id).style.display === "flex");
 
       if (anyOverlay) {
@@ -204,6 +205,8 @@
         else if (anyOverlay === "modal-overlay")   closeModal();
         else if (anyOverlay === "meldingen-overlay") { $("meldingen-overlay").style.display = "none"; }
         else if (anyOverlay === "cleanup-overlay")   { $("cleanup-overlay").style.display = "none"; }
+        else if (anyOverlay === "taken-overlay")     { $("taken-overlay").style.display = "none"; }
+        else if (anyOverlay === "taak-form-overlay") closeTaakForm();
         // Push weer een state zodat de app niet verlaten wordt
         pushNav();
       } else {
@@ -1919,6 +1922,7 @@
 
   function openTakenModal() {
     $("taken-overlay").style.display = "flex";
+    pushNav();
     renderTakenLijst();
   }
 
@@ -1996,6 +2000,7 @@
 
     $("btn-taak-verwijder").style.display = taak ? "inline-block" : "none";
     $("taak-form-overlay").style.display = "flex";
+    pushNav();
   }
 
   function closeTaakForm() {
