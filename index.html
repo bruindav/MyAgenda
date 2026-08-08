@@ -2103,7 +2103,7 @@
     row.innerHTML = `
       <input type="checkbox" class="taak-check" ${t.done ? "checked" : ""}>
       <span class="taak-titel">${t.title}</span>
-      ${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt elke ${t.herhaalDagen} dagen na voltooien">🔁 ${t.herhaalDagen}d</span>` : ""}
+      ${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt ${t.herhaalDagen} dagen na voltooien opnieuw">🔁 na ${t.herhaalDagen}d</span>` : ""}
       ${datumLabel ? `<span class="taak-datum">${datumLabel}</span>` : ""}
       <button class="taak-edit-btn" title="Bewerken">✏️</button>
       <button class="taak-del-btn" title="Verwijderen">🗑</button>
@@ -4685,7 +4685,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
       </label>
       <div id="taak-herhaal-veld" class="meld-subveld" style="margin-left:0">
         <div style="display:flex;align-items:center;gap:8px">
-          <span>Elke</span>
+          <span>Herhaal na</span>
           <input id="taak-herhaal-dagen" type="number" min="1" value="7" style="width:70px">
           <span>dagen</span>
         </div>
