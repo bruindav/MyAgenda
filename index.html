@@ -1137,9 +1137,35 @@
         const kleur = eventColor(ev);
         pill.style.background = kleur;
         pill.style.color = contrastText(kleur);
-        // Geen tijden in maandgrid — alleen icoon + titel
-        // Geen icoon in kleine maandcellen — meer ruimte voor tekst
-        pill.textContent = ev.title;
+
+        // Meerdaagse afspraken (bv. hotelboeking, vakantie) als doorlopende
+        // balk tonen i.p.v. elke dag dezelfde tekst te herhalen: ronding
+        // alleen aan het echte begin/einde, tekst alleen bij het begin van
+        // het event of het begin van een nieuwe week (als de balk over een
+        // weekgrens doorloopt).
+        const eindDatum = ev.endDate || ev.startDate;
+        const isMeerdaags = eindDatum !== ev.startDate;
+        let toonTekst = true;
+        if (isMeerdaags) {
+          const dateStr     = toDateStr(dateObj);
+          const isStart     = dateStr === ev.startDate;
+          const isEind      = dateStr === eindDatum;
+          const isWeekStart = dateObj.getDay() === 1; // maandag
+          const isWeekEind  = dateObj.getDay() === 0; // zondag
+          toonTekst = isStart || isWeekStart;
+          const linksRond  = isStart || isWeekStart;
+          const rechtsRond = isEind  || isWeekEind;
+          pill.style.borderRadius = (linksRond ? "3px" : "0") + " " + (rechtsRond ? "3px" : "0") + " "
+                                   + (rechtsRond ? "3px" : "0") + " " + (linksRond ? "3px" : "0");
+          // Cel-padding "opheffen" aan de doorlopende zijden zodat de
+          // balk zo strak mogelijk tegen de buurdag aan sluit.
+          pill.style.marginLeft  = linksRond  ? "0" : "-3px";
+          pill.style.marginRight = rechtsRond ? "0" : "-3px";
+        }
+
+        pill.textContent = toonTekst ? (ev.title || "").trim() : "";
+        if (!toonTekst) pill.innerHTML = "&nbsp;"; // voorkomt dat een leeg balksegment in elkaar valt
+        pill.title = (ev.title || "").trim(); // volledige titel als tooltip, ook op lege balksegmenten
         pill.addEventListener("click", e => {
           e.stopPropagation();
           // Klik op event → open dagweergave voor die dag
@@ -1740,6 +1766,11 @@
     return a.getFullYear() === b.getFullYear() &&
            a.getMonth()    === b.getMonth()    &&
            a.getDate()     === b.getDate();
+  }
+
+  function toDateStr(d) {
+    const dt = new Date(d);
+    return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
   }
 
   function toDate(str) {
@@ -2898,6 +2929,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     border-radius: 3px;
     padding: 1px 4px;
     font-size: .72rem;
+    min-height: 1.3em;
     margin-bottom: 1px;
     cursor: pointer;
     overflow: hidden;
