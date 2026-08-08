@@ -189,7 +189,7 @@
         "export-overlay","rooster-wizard-overlay","gcal-keuze-overlay",
         "detail-overlay","modal-overlay","share-overlay",
         "meldingen-overlay","cleanup-overlay",
-        "taken-overlay","taak-form-overlay"
+        "taken-overlay","taak-form-overlay","ics-keuze-overlay"
       ].find(id => $(id) && $(id).style.display === "flex");
 
       if (anyOverlay) {
@@ -207,6 +207,7 @@
         else if (anyOverlay === "cleanup-overlay")   { $("cleanup-overlay").style.display = "none"; }
         else if (anyOverlay === "taken-overlay")     { $("taken-overlay").style.display = "none"; }
         else if (anyOverlay === "taak-form-overlay") closeTaakForm();
+        else if (anyOverlay === "ics-keuze-overlay") { $("ics-keuze-overlay").style.display = "none"; }
         // Push weer een state zodat de app niet verlaten wordt
         pushNav();
       } else {
@@ -597,6 +598,7 @@
       ? `${events.length} afspra${events.length === 1 ? "ak" : "ken"} gevonden in het bestand:`
       : "Geen afspraken gevonden in dit bestand.";
     $("ics-keuze-overlay").style.display = "flex";
+    pushNav();
   }
 
   async function bevestigIcsImport() {
