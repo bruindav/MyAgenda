@@ -2,7 +2,7 @@
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>Agenda</title>
 <meta name="theme-color" content="#1a73e8">
 <meta name="mobile-web-app-capable" content="yes">
@@ -295,6 +295,21 @@
     $("sidebar-backdrop").addEventListener("click", () => {
       $("sidebar").classList.remove("open");
       $("sidebar-backdrop").classList.remove("show");
+    });
+
+    // Vangnet voor mobiel toetsenbord: als een invoerveld in een pop-up
+    // focus krijgt, scroll die net zo lang in beeld tot 'ie boven het
+    // toetsenbord uitkomt (voornamelijk relevant op browsers die de
+    // "interactive-widget=resizes-content" viewport-instelling nog niet
+    // ondersteunen).
+    document.addEventListener("focusin", e => {
+      const veld = e.target;
+      if (!veld.matches("input, textarea, select")) return;
+      const overlay = veld.closest('[id$="-overlay"]');
+      if (!overlay) return;
+      setTimeout(() => {
+        veld.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 250);
     });
 
     // Donker/licht thema
