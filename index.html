@@ -333,7 +333,9 @@
       if (e.target.checked && !$("taak-datum-input").value) {
         $("taak-datum-input").value = toDateStr(new Date());
       }
+      updateTaakHerhaalZichtbaarheid();
     });
+    $("taak-herhaalt").addEventListener("change", updateTaakHerhaalZichtbaarheid);
     $("taken-overlay").addEventListener("click", e => {
       if (e.target === $("taken-overlay")) $("taken-overlay").style.display = "none";
     });
@@ -2101,12 +2103,31 @@
     row.innerHTML = `
       <input type="checkbox" class="taak-check" ${t.done ? "checked" : ""}>
       <span class="taak-titel">${t.title}</span>
+      ${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt elke ${t.herhaalDagen} dagen na voltooien">🔁 ${t.herhaalDagen}d</span>` : ""}
       ${datumLabel ? `<span class="taak-datum">${datumLabel}</span>` : ""}
       <button class="taak-edit-btn" title="Bewerken">✏️</button>
       <button class="taak-del-btn" title="Verwijderen">🗑</button>
     `;
-    row.querySelector(".taak-check").addEventListener("change", e => {
-      updateDoc(doc(db, "taken", t.id), { done: e.target.checked });
+    row.querySelector(".taak-check").addEventListener("change", async e => {
+      const nuVoltooid = e.target.checked;
+      await updateDoc(doc(db, "taken", t.id), { done: nuVoltooid });
+
+      // Herhalende taak (bv. planten water geven): bij voltooien meteen
+      // de volgende taak aanmaken, met als datum vandaag + N dagen.
+      if (nuVoltooid && t.herhaalDagen) {
+        const volgendeDatum = new Date();
+        volgendeDatum.setDate(volgendeDatum.getDate() + t.herhaalDagen);
+        await addDoc(collection(db, "taken"), {
+          title: t.title,
+          datum: toDateStr(volgendeDatum),
+          herhaalDagen: t.herhaalDagen,
+          calendarId: t.calendarId,
+          members: t.members,
+          done: false,
+          createdAt: Timestamp.now(),
+        });
+        showToast(`🔁 Volgende "${t.title}" ingepland op ${formatDatumKort(toDateStr(volgendeDatum))}`, "ok");
+      }
     });
     row.querySelector(".taak-edit-btn").addEventListener("click", () => openTaakForm(t));
     row.querySelector(".taak-del-btn").addEventListener("click", () => {
@@ -2128,6 +2149,9 @@
     $("taak-heeft-datum").checked = taak ? !!taak.datum : !!prefillDatum;
     $("taak-datum-input").value = taak ? (taak.datum || "") : (prefillDatum || "");
     $("taak-datum-input").disabled = !$("taak-heeft-datum").checked;
+    $("taak-herhaalt").checked = !!(taak && taak.herhaalDagen);
+    $("taak-herhaal-dagen").value = (taak && taak.herhaalDagen) || 7;
+    updateTaakHerhaalZichtbaarheid();
 
     const sel = $("taak-agenda-select");
     sel.innerHTML = "";
@@ -2143,6 +2167,12 @@
     pushNav();
   }
 
+  function updateTaakHerhaalZichtbaarheid() {
+    const heeftDatum = $("taak-heeft-datum").checked;
+    $("taak-herhaal-row").style.display = heeftDatum ? "flex" : "none";
+    $("taak-herhaal-veld").style.display = $("taak-herhaalt").checked ? "flex" : "none";
+  }
+
   function closeTaakForm() {
     $("taak-form-overlay").style.display = "none";
     editingTaak = null;
@@ -2155,10 +2185,14 @@
     const datum = heeftDatum ? $("taak-datum-input").value : null;
     if (heeftDatum && !datum) { showToast("Kies een datum, of zet 'aan datum koppelen' uit", "warn"); return; }
     const calendarId = $("taak-agenda-select").value;
+    const herhaalDagen = (heeftDatum && $("taak-herhaalt").checked)
+      ? Math.max(1, parseInt($("taak-herhaal-dagen").value, 10) || 7)
+      : null;
 
     const data = {
       title,
       datum,
+      herhaalDagen,
       calendarId,
       members: calendarMembers(calendarId),
       updatedAt: Timestamp.now(),
@@ -3831,6 +3865,11 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     font-size: .74rem; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent);
     border-radius: 8px; padding: 2px 8px; white-space: nowrap; flex-shrink: 0;
   }
+  .taak-herhaal-badge {
+    font-size: .72rem; color: #7e57c2; background: #ede7f6;
+    border-radius: 8px; padding: 2px 6px; white-space: nowrap; flex-shrink: 0;
+  }
+  html.dark-theme .taak-herhaal-badge { background: #2a2340; color: #b39ddb; }
   .taak-edit-btn, .taak-del-btn {
     border: none; background: none; cursor: pointer; font-size: .9rem;
     padding: 3px 5px; border-radius: 6px; flex-shrink: 0;
@@ -4638,6 +4677,24 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
         <input type="checkbox" id="taak-heeft-datum"> Aan datum koppelen
       </label>
       <input id="taak-datum-input" type="date" style="margin-top:8px">
+    </div>
+
+    <div class="form-row" id="taak-herhaal-row">
+      <label class="meld-checkbox-label">
+        <input type="checkbox" id="taak-herhaalt"> Herhalen na voltooien
+      </label>
+      <div id="taak-herhaal-veld" class="meld-subveld" style="margin-left:0">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span>Elke</span>
+          <input id="taak-herhaal-dagen" type="number" min="1" value="7" style="width:70px">
+          <span>dagen</span>
+        </div>
+        <div class="uitnodig-hint">
+          Bijv. voor planten water geven: als je de taak afvinkt, wordt er
+          automatisch een nieuwe taak aangemaakt op de dag dat je 'm
+          afvinkt + dit aantal dagen (dus niet vanaf de oorspronkelijke datum).
+        </div>
+      </div>
     </div>
 
     <div class="form-row">
