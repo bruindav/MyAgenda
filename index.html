@@ -85,6 +85,8 @@
 
   let currentUser   = null;
   let events        = [];
+  let taken         = [];       // taken/todo's, los van of gekoppeld aan een datum
+  let unsubTaken    = null;
   let gcalEvents    = [];       // events uit Google Agenda (read-only)
   let hiddenCals    = new Set(); // agenda-IDs die verborgen zijn
   let calGroups     = {};        // { groupName: [calId, calId, ...] } samenvoegen
@@ -163,7 +165,8 @@
         $("app-shell").style.display    = "none";
         if (unsubEvents) { unsubEvents(); unsubEvents = null; }
         if (unsubCals)   { unsubCals();   unsubCals   = null; }
-        events = []; calendars = []; gcalEvents = [];
+        if (unsubTaken)  { unsubTaken();  unsubTaken  = null; }
+        events = []; calendars = []; gcalEvents = []; taken = [];
       }
     });
 
@@ -297,6 +300,24 @@
     // Donker/licht thema
     $("btn-theme-toggle").textContent = document.documentElement.classList.contains("dark-theme") ? "☀️" : "🌙";
     $("btn-theme-toggle").addEventListener("click", toggleTheme);
+    $("btn-taken").addEventListener("click", openTakenModal);
+    $("btn-taken-sluit").addEventListener("click", () => { $("taken-overlay").style.display = "none"; });
+    $("btn-taak-nieuw").addEventListener("click", () => openTaakForm(null));
+    $("btn-taak-annuleer").addEventListener("click", closeTaakForm);
+    $("btn-taak-opslaan").addEventListener("click", slaTaakOp);
+    $("btn-taak-verwijder").addEventListener("click", verwijderHuidigeTaak);
+    $("taak-heeft-datum").addEventListener("change", e => {
+      $("taak-datum-input").disabled = !e.target.checked;
+      if (e.target.checked && !$("taak-datum-input").value) {
+        $("taak-datum-input").value = toDateStr(new Date());
+      }
+    });
+    $("taken-overlay").addEventListener("click", e => {
+      if (e.target === $("taken-overlay")) $("taken-overlay").style.display = "none";
+    });
+    $("taak-form-overlay").addEventListener("click", e => {
+      if (e.target === $("taak-form-overlay")) closeTaakForm();
+    });
     $("btn-meldingen").addEventListener("click", openMeldingenModal);
     $("btn-meldingen-sluit").addEventListener("click", () => { $("meldingen-overlay").style.display = "none"; });
     $("btn-meldingen-opslaan").addEventListener("click", slaMeldingenOp);
@@ -632,6 +653,14 @@
     unsubEvents = onSnapshot(evQ, snap => {
       events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       renderAll();
+    });
+
+    if (unsubTaken) unsubTaken();
+    const takenQ = query(collection(db, "taken"), where("members", "array-contains", uid));
+    unsubTaken = onSnapshot(takenQ, snap => {
+      taken = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderAll();
+      if ($("taken-overlay").style.display === "flex") renderTakenLijst();
     });
   }
 
@@ -1181,6 +1210,18 @@
       if (dayEvs.length > 3)
         cell.appendChild(el("div", "ev-more", "+" + (dayEvs.length - 3) + " meer"));
 
+      // Taken die aan deze datum gekoppeld zijn (los van de event-limiet)
+      const dayTaken = getTakenVoorDag(dateObj);
+      dayTaken.slice(0, 2).forEach(t => {
+        const tPill = el("div", "taak-pill");
+        tPill.innerHTML = `<span>✅</span><span>${t.title}</span>`;
+        tPill.addEventListener("click", e => {
+          e.stopPropagation();
+          openTaakForm(t);
+        });
+        cell.appendChild(tPill);
+      });
+
       cell.addEventListener("click", () => {
         viewDate = dateObj; currentView = "day";
         document.querySelectorAll(".view-btn").forEach(x => x.classList.remove("active"));
@@ -1236,6 +1277,12 @@
         bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
         adCol.appendChild(bar);
       });
+      getTakenVoorDag(d).forEach(t => {
+        const tPill = el("div", "taak-pill");
+        tPill.innerHTML = `<span>✅</span><span>${t.title}</span>`;
+        tPill.addEventListener("click", e => { e.stopPropagation(); openTaakForm(t); });
+        adCol.appendChild(tPill);
+      });
       alldayRow.appendChild(adCol);
     });
     grid.appendChild(alldayRow);
@@ -1286,6 +1333,12 @@
       bar.style.background = eventColor(ev);
       bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
       adRowDay.appendChild(bar);
+    });
+    getTakenVoorDag(viewDate).forEach(t => {
+      const tPill = el("div", "taak-pill");
+      tPill.innerHTML = `<span>✅</span><span>${t.title}</span>`;
+      tPill.addEventListener("click", e => { e.stopPropagation(); openTaakForm(t); });
+      adRowDay.appendChild(tPill);
     });
     if (adRowDay.children.length > 0) grid.appendChild(adRowDay);
 
@@ -1829,6 +1882,139 @@
       if (!ev.repeat || ev.repeat === "none") return s <= t && t <= e;
       return matchesRepeat(ev, date);
     }).sort((a,b) => (a.startTime||"00:00").localeCompare(b.startTime||"00:00"));
+  }
+
+  function toDateStr(d) {
+    const dt = new Date(d);
+    return dt.getFullYear() + "-" + String(dt.getMonth()+1).padStart(2,"0") + "-" + String(dt.getDate()).padStart(2,"0");
+  }
+
+  function getTakenVoorDag(date) {
+    const dateStr = toDateStr(date);
+    return taken.filter(t => t.datum === dateStr && !t.done);
+  }
+
+  // ── Taken (to-do's) ────────────────────────────
+  let editingTaak = null;
+
+  function openTakenModal() {
+    $("taken-overlay").style.display = "flex";
+    renderTakenLijst();
+  }
+
+  function renderTakenLijst() {
+    const lijst = $("taken-lijst");
+    lijst.innerHTML = "";
+
+    const openTaken = taken.filter(t => !t.done);
+    const gedaanTaken = taken.filter(t => t.done);
+
+    const zonderDatum = openTaken.filter(t => !t.datum).sort((a,b) => (a.title||"").localeCompare(b.title||""));
+    const metDatum = openTaken.filter(t => t.datum).sort((a,b) => a.datum.localeCompare(b.datum));
+
+    if (taken.length === 0) {
+      lijst.innerHTML = `<div style="color:var(--muted);font-size:.85rem;padding:8px">Nog geen taken. Klik op + om er een toe te voegen.</div>`;
+      return;
+    }
+
+    if (metDatum.length) {
+      lijst.appendChild(el("div", "taken-groep-titel", "Met datum"));
+      metDatum.forEach(t => lijst.appendChild(bouwTaakRij(t)));
+    }
+    if (zonderDatum.length) {
+      lijst.appendChild(el("div", "taken-groep-titel", "Zonder datum"));
+      zonderDatum.forEach(t => lijst.appendChild(bouwTaakRij(t)));
+    }
+    if (gedaanTaken.length) {
+      lijst.appendChild(el("div", "taken-groep-titel", "Afgerond"));
+      gedaanTaken.sort((a,b) => (b.datum||"").localeCompare(a.datum||"")).forEach(t => lijst.appendChild(bouwTaakRij(t)));
+    }
+  }
+
+  function bouwTaakRij(t) {
+    const row = el("div", "taak-row" + (t.done ? " taak-done" : ""));
+    const datumLabel = t.datum ? formatDatumKort(t.datum) : "";
+    row.innerHTML = `
+      <input type="checkbox" class="taak-check" ${t.done ? "checked" : ""}>
+      <span class="taak-titel">${t.title}</span>
+      ${datumLabel ? `<span class="taak-datum">${datumLabel}</span>` : ""}
+      <button class="taak-edit-btn" title="Bewerken">✏️</button>
+      <button class="taak-del-btn" title="Verwijderen">🗑</button>
+    `;
+    row.querySelector(".taak-check").addEventListener("change", e => {
+      updateDoc(doc(db, "taken", t.id), { done: e.target.checked });
+    });
+    row.querySelector(".taak-edit-btn").addEventListener("click", () => openTaakForm(t));
+    row.querySelector(".taak-del-btn").addEventListener("click", () => {
+      if (confirm(`Taak "${t.title}" verwijderen?`)) deleteDoc(doc(db, "taken", t.id));
+    });
+    return row;
+  }
+
+  function formatDatumKort(datumStr) {
+    const [j,m,d] = datumStr.split("-").map(Number);
+    const maanden = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"];
+    return `${d} ${maanden[m-1]}`;
+  }
+
+  function openTaakForm(taak, prefillDatum) {
+    editingTaak = taak || null;
+    $("taak-form-titel").textContent = taak ? "Taak bewerken" : "Nieuwe taak";
+    $("taak-titel-input").value = taak ? taak.title : "";
+    $("taak-heeft-datum").checked = taak ? !!taak.datum : !!prefillDatum;
+    $("taak-datum-input").value = taak ? (taak.datum || "") : (prefillDatum || "");
+    $("taak-datum-input").disabled = !$("taak-heeft-datum").checked;
+
+    const sel = $("taak-agenda-select");
+    sel.innerHTML = "";
+    getOrderedCalendars().forEach(cal => {
+      const o = document.createElement("option");
+      o.value = cal.id; o.textContent = cal.name;
+      if (taak && taak.calendarId === cal.id) o.selected = true;
+      sel.appendChild(o);
+    });
+
+    $("btn-taak-verwijder").style.display = taak ? "inline-block" : "none";
+    $("taak-form-overlay").style.display = "flex";
+  }
+
+  function closeTaakForm() {
+    $("taak-form-overlay").style.display = "none";
+    editingTaak = null;
+  }
+
+  async function slaTaakOp() {
+    const title = $("taak-titel-input").value.trim();
+    if (!title) { showToast("Vul een titel in", "warn"); return; }
+    const heeftDatum = $("taak-heeft-datum").checked;
+    const datum = heeftDatum ? $("taak-datum-input").value : null;
+    if (heeftDatum && !datum) { showToast("Kies een datum, of zet 'aan datum koppelen' uit", "warn"); return; }
+    const calendarId = $("taak-agenda-select").value;
+
+    const data = {
+      title,
+      datum,
+      calendarId,
+      members: calendarMembers(calendarId),
+      updatedAt: Timestamp.now(),
+    };
+
+    if (editingTaak) {
+      await updateDoc(doc(db, "taken", editingTaak.id), data);
+    } else {
+      data.done = false;
+      data.createdAt = Timestamp.now();
+      await addDoc(collection(db, "taken"), data);
+    }
+    closeTaakForm();
+    showToast("✅ Taak opgeslagen", "ok");
+  }
+
+  async function verwijderHuidigeTaak() {
+    if (!editingTaak) return;
+    if (!confirm(`Taak "${editingTaak.title}" verwijderen?`)) return;
+    await deleteDoc(doc(db, "taken", editingTaak.id));
+    closeTaakForm();
   }
 
   function matchesRepeat(ev, date) {
@@ -2774,11 +2960,11 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #user-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
   #user-name { font-size: .82rem; color: var(--muted); display: none; }
   @media(min-width:700px) { #user-name { display: inline; } }
-  #btn-theme-toggle, #btn-meldingen {
+  #btn-theme-toggle, #btn-meldingen, #btn-taken {
     border: none; background: none; cursor: pointer; font-size: 1.05rem;
     padding: 4px 6px; border-radius: 6px; line-height: 1; flex-shrink: 0;
   }
-  #btn-theme-toggle:hover, #btn-meldingen:hover { background: var(--bg); }
+  #btn-theme-toggle:hover, #btn-meldingen:hover, #btn-taken:hover { background: var(--bg); }
   #btn-logout {
     border: none; background: none; cursor: pointer; font-size: .78rem;
     color: var(--muted); padding: 4px 6px; border-radius: 4px; white-space: nowrap;
@@ -3436,6 +3622,68 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #meld-telegram-chatid:focus, #meld-email-adres:focus { outline: none; border-color: var(--primary); }
   #meldingen-status { min-height: 1em; }
 
+  /* ── Taken ──────────────────────────────────── */
+  #taken-overlay, #taak-form-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 200;
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  #taken-modal, #taak-form-modal {
+    background: var(--surface); border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    width: 100%; max-width: 440px; padding: 24px;
+    display: flex; flex-direction: column; gap: 12px;
+    animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
+  }
+  #taken-lijst { display: flex; flex-direction: column; gap: 4px; }
+  .taken-groep-titel {
+    font-size: .76rem; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+    padding: 10px 2px 2px;
+  }
+  .taak-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg);
+  }
+  .taak-check { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }
+  .taak-titel { flex: 1; font-size: .88rem; min-width: 0; word-break: break-word; }
+  .taak-done .taak-titel { text-decoration: line-through; color: var(--muted); }
+  .taak-datum {
+    font-size: .74rem; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent);
+    border-radius: 8px; padding: 2px 8px; white-space: nowrap; flex-shrink: 0;
+  }
+  .taak-edit-btn, .taak-del-btn {
+    border: none; background: none; cursor: pointer; font-size: .9rem;
+    padding: 3px 5px; border-radius: 6px; flex-shrink: 0;
+  }
+  .taak-edit-btn:hover, .taak-del-btn:hover { background: var(--surface); }
+
+  #taak-datum-input {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: .88rem; font-family: var(--font);
+    width: 100%;
+  }
+  #taak-datum-input:disabled { opacity: .4; }
+  #taak-titel-input, #taak-agenda-select {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: .88rem; font-family: var(--font);
+    width: 100%; background: var(--surface); color: var(--text);
+  }
+  #taak-titel-input:focus, #taak-agenda-select:focus, #taak-datum-input:focus {
+    outline: none; border-color: var(--primary);
+  }
+
+  /* Taak-chip in de kalendercellen */
+  .taak-pill {
+    display: flex; align-items: center; gap: 4px;
+    font-size: .72rem; padding: 2px 6px; border-radius: 6px;
+    background: #ede7f6; color: #5e35b1; border-left: 3px solid #7e57c2;
+    cursor: pointer; margin-top: 2px;
+  }
+  .taak-pill.taak-pill-done { opacity: .55; text-decoration: line-through; }
+  html.dark-theme .taak-pill { background: #2a2440; color: #c9b8ff; }
+
 
   /* ── Google import keuze-dialog ──────────────── */
   #gcal-keuze-overlay {
@@ -3664,6 +3912,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
         </svg>
       </span>
       <span id="topbar-spacer"></span>
+      <button id="btn-taken" title="Taken">✅</button>
       <button id="btn-meldingen" title="Ochtendbericht instellen">🔔</button>
       <button id="btn-theme-toggle" title="Donker thema aan/uit">🌙</button>
       <img id="user-avatar" src="" alt="avatar">
@@ -4128,6 +4377,46 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div class="modal-actions">
       <button id="btn-meldingen-sluit" class="btn-ghost">Sluiten</button>
       <button id="btn-meldingen-opslaan" class="btn-primary">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+<div id="taken-overlay">
+  <div id="taken-modal">
+    <div class="export-title">✅ Taken</div>
+    <div id="taken-lijst"></div>
+    <div class="modal-actions">
+      <button id="btn-taken-sluit" class="btn-ghost">Sluiten</button>
+      <button id="btn-taak-nieuw" class="btn-primary">＋ Nieuwe taak</button>
+    </div>
+  </div>
+</div>
+
+<div id="taak-form-overlay">
+  <div id="taak-form-modal">
+    <div id="taak-form-titel" class="export-title">Nieuwe taak</div>
+
+    <div class="form-row">
+      <label>Titel</label>
+      <input id="taak-titel-input" type="text" placeholder="Bijv. Cadeau kopen">
+    </div>
+
+    <div class="form-row">
+      <label class="meld-checkbox-label">
+        <input type="checkbox" id="taak-heeft-datum"> Aan datum koppelen
+      </label>
+      <input id="taak-datum-input" type="date" style="margin-top:8px">
+    </div>
+
+    <div class="form-row">
+      <label>Agenda</label>
+      <select id="taak-agenda-select"></select>
+    </div>
+
+    <div class="modal-actions">
+      <button id="btn-taak-verwijder" class="btn-ghost" style="color:#d93025">🗑 Verwijderen</button>
+      <button id="btn-taak-annuleer" class="btn-ghost">Annuleren</button>
+      <button id="btn-taak-opslaan" class="btn-primary">Opslaan</button>
     </div>
   </div>
 </div>
