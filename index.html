@@ -2063,6 +2063,13 @@
   let editingTaak = null;
 
   function openTakenModal() {
+    // Vangnet: als het aanmaak-/bewerkformulier per ongeluk nog open stond
+    // (bv. door een eerdere afgebroken actie), sluit dat eerst - anders
+    // lijkt het net of er meteen een "nieuwe taak"-kaartje verschijnt
+    // i.p.v. het overzicht.
+    $("taak-form-overlay").style.display = "none";
+    editingTaak = null;
+
     $("taken-overlay").style.display = "flex";
     pushNav();
     renderTakenLijst();
@@ -3990,7 +3997,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px;
   }
   .taak-row {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
     padding: 7px 10px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--bg);
     touch-action: pan-y;
@@ -4008,7 +4015,10 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   }
   .taak-drag-handle:active { cursor: grabbing; }
   .taak-check { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }
-  .taak-titel { flex: 1; font-size: .88rem; min-width: 0; word-break: break-word; }
+  .taak-titel {
+    flex: 1 1 auto; min-width: 90px; font-size: .88rem;
+    word-break: break-word; overflow-wrap: break-word;
+  }
   .taak-done .taak-titel { text-decoration: line-through; color: var(--muted); }
   .taak-datum {
     font-size: .74rem; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent);
