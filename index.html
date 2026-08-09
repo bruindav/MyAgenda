@@ -2072,12 +2072,6 @@
     const lijst = $("taken-lijst");
     lijst.innerHTML = "";
 
-    const openTaken = taken.filter(t => !t.done);
-    const gedaanTaken = taken.filter(t => t.done);
-
-    const zonderDatum = openTaken.filter(t => !t.datum).sort((a,b) => (a.title||"").localeCompare(b.title||""));
-    const metDatum = openTaken.filter(t => t.datum).sort((a,b) => a.datum.localeCompare(b.datum));
-
     if (taken.length === 0) {
       lijst.innerHTML = `
         <div style="text-align:center;padding:28px 8px;color:var(--muted)">
@@ -2089,24 +2083,52 @@
       return;
     }
 
-    if (metDatum.length) {
-      lijst.appendChild(el("div", "taken-groep-titel", "Met datum"));
-      metDatum.forEach(t => lijst.appendChild(bouwTaakRij(t)));
-    }
-    if (zonderDatum.length) {
-      lijst.appendChild(el("div", "taken-groep-titel", "Zonder datum"));
-      zonderDatum.forEach(t => lijst.appendChild(bouwTaakRij(t)));
-    }
+    const todayStr = toDateStr(new Date());
+    const openTaken = taken.filter(t => !t.done);
+    const gedaanTaken = taken.filter(t => t.done);
+    const volgSort = (a, b) => (a.volgorde ?? 0) - (b.volgorde ?? 0) || (a.title||"").localeCompare(b.title||"");
+
+    // "Later" = alles met een datum in de toekomst (handmatig ingepland via
+    // slepen, of automatisch door een herhalende taak). Zodra die datum
+    // aanbreekt (todayStr ermee gelijk of erna), verschuift de taak vanzelf
+    // terug naar "Vandaag / eerder" bij de volgende render.
+    const laterTaken    = openTaken.filter(t => t.datum && t.datum > todayStr).sort((a,b) => a.datum.localeCompare(b.datum));
+    const metDatum      = openTaken.filter(t => t.datum && t.datum <= todayStr).sort(volgSort);
+    const zonderDatum    = openTaken.filter(t => !t.datum).sort(volgSort);
+
+    lijst.appendChild(bouwTaakGroep("metdatum", "Vandaag / eerder", metDatum));
+    lijst.appendChild(bouwTaakGroep("zonderdatum", "Zonder datum", zonderDatum));
+    lijst.appendChild(bouwTaakGroep("later", "🔁 Herhalen / Later", laterTaken));
     if (gedaanTaken.length) {
-      lijst.appendChild(el("div", "taken-groep-titel", "Afgerond"));
-      gedaanTaken.sort((a,b) => (b.datum||"").localeCompare(a.datum||"")).forEach(t => lijst.appendChild(bouwTaakRij(t)));
+      lijst.appendChild(bouwTaakGroep("afgerond", "Afgerond",
+        gedaanTaken.sort((a,b) => (b.datum||"").localeCompare(a.datum||"")), false));
     }
+
+    initTakenDragDrop();
+  }
+
+  function bouwTaakGroep(groepId, titel, takenLijst, isDropTarget = true) {
+    const wrap = el("div", "taken-groep");
+    wrap.appendChild(el("div", "taken-groep-titel", titel));
+    const container = el("div", "taken-groep-lijst" + (isDropTarget ? "" : " taken-groep-lijst-vast"));
+    container.dataset.groep = groepId;
+    if (takenLijst.length === 0) {
+      container.innerHTML = groepId === "later"
+        ? `<div class="taken-groep-leeg">Sleep hier een taak naartoe om 'm uit te stellen</div>`
+        : `<div class="taken-groep-leeg">&nbsp;</div>`;
+    } else {
+      takenLijst.forEach(t => container.appendChild(bouwTaakRij(t)));
+    }
+    wrap.appendChild(container);
+    return wrap;
   }
 
   function bouwTaakRij(t) {
     const row = el("div", "taak-row" + (t.done ? " taak-done" : ""));
+    row.dataset.id = t.id;
     const datumLabel = t.datum ? formatDatumKort(t.datum) : "";
     row.innerHTML = `
+      <span class="taak-drag-handle" title="Slepen om te herschikken">⠿</span>
       <input type="checkbox" class="taak-check" ${t.done ? "checked" : ""}>
       <span class="taak-titel">${t.title}</span>
       ${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt ${t.herhaalDagen} dagen na voltooien opnieuw">🔁 na ${t.herhaalDagen}d</span>` : ""}
@@ -2140,6 +2162,108 @@
       if (confirm(`Taak "${t.title}" verwijderen?`)) deleteDoc(doc(db, "taken", t.id));
     });
     return row;
+  }
+
+  // ── Taken slepen: herschikken (prioriteit) + naar "Later" ─────
+  function initTakenDragDrop() {
+    $("taken-lijst").querySelectorAll(".taak-drag-handle").forEach(handle => {
+      handle.addEventListener("pointerdown", startTaakDrag);
+    });
+  }
+
+  function startTaakDrag(startEv) {
+    startEv.preventDefault();
+    const row = startEv.target.closest(".taak-row");
+    if (!row) return;
+    const taakId = row.dataset.id;
+
+    const rect = row.getBoundingClientRect();
+    const placeholder = el("div", "taak-drop-placeholder");
+    placeholder.style.height = rect.height + "px";
+    row.parentNode.insertBefore(placeholder, row);
+
+    row.classList.add("taak-dragging");
+    row.style.position = "fixed";
+    row.style.left  = rect.left + "px";
+    row.style.top   = rect.top + "px";
+    row.style.width = rect.width + "px";
+
+    const startY = startEv.clientY;
+    const startTop = rect.top;
+
+    function onMove(ev) {
+      row.style.top = (startTop + (ev.clientY - startY)) + "px";
+
+      row.style.pointerEvents = "none";
+      const onder = document.elementFromPoint(ev.clientX, ev.clientY);
+      row.style.pointerEvents = "";
+      const doelGroep = onder?.closest(".taken-groep-lijst");
+      if (!doelGroep) return;
+      const doelRij = onder?.closest(".taak-row");
+      if (doelRij && doelRij !== row && doelRij.parentNode === doelGroep) {
+        const r = doelRij.getBoundingClientRect();
+        const voorHelft = ev.clientY < r.top + r.height / 2;
+        doelGroep.insertBefore(placeholder, voorHelft ? doelRij : doelRij.nextSibling);
+      } else if (doelRij !== row) {
+        doelGroep.appendChild(placeholder);
+      }
+    }
+
+    async function onUp() {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+
+      const doelGroepEl = placeholder.closest(".taken-groep-lijst");
+      const doelGroep = doelGroepEl?.dataset.groep;
+      placeholder.replaceWith(row);
+      row.classList.remove("taak-dragging");
+      row.style.position = ""; row.style.left = ""; row.style.top = ""; row.style.width = "";
+
+      if (doelGroep) await verwerkTaakDrop(taakId, doelGroep, doelGroepEl);
+      else renderTakenLijst(); // buiten een geldige groep losgelaten -> herstel
+    }
+
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp, { once: true });
+  }
+
+  async function verwerkTaakDrop(taakId, doelGroep, doelGroepEl) {
+    const taak = taken.find(t => t.id === taakId);
+    if (!taak) return;
+
+    if (doelGroep === "later") {
+      const keuze = prompt(
+        `Wanneer wil je "${taak.title}" weer terugzien?\n\n` +
+        `Typ een aantal dagen (bv. 7), of een datum (JJJJ-MM-DD):`,
+        String(taak.herhaalDagen || 7)
+      );
+      if (keuze === null || !keuze.trim()) { renderTakenLijst(); return; }
+      let nieuweDatum;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(keuze.trim())) {
+        nieuweDatum = keuze.trim();
+      } else {
+        const dagen = parseInt(keuze, 10);
+        if (!dagen || dagen < 1) { showToast("Ongeldige invoer, niets gewijzigd", "warn"); renderTakenLijst(); return; }
+        const d = new Date(); d.setDate(d.getDate() + dagen);
+        nieuweDatum = toDateStr(d);
+      }
+      await updateDoc(doc(db, "taken", taakId), { datum: nieuweDatum });
+      showToast(`⏰ "${taak.title}" komt terug op ${formatDatumKort(nieuweDatum)}`, "ok");
+      return;
+    }
+
+    if (doelGroep === "zonderdatum" && taak.datum) {
+      await updateDoc(doc(db, "taken", taakId), { datum: null });
+      showToast(`Datum verwijderd van "${taak.title}"`, "ok");
+      return;
+    }
+
+    if (doelGroep === "afgerond") { renderTakenLijst(); return; } // niet ondersteund, herstel volgorde
+
+    // Binnen dezelfde groep herschikt (of naar "metdatum" zonder datumwijziging)
+    // → nieuwe volgorde opslaan voor iedereen in die groep.
+    const idsInVolgorde = Array.from(doelGroepEl.querySelectorAll(".taak-row")).map(r => r.dataset.id);
+    await Promise.all(idsInVolgorde.map((id, i) => updateDoc(doc(db, "taken", id), { volgorde: i })));
   }
 
   function formatDatumKort(datumStr) {
@@ -3853,17 +3977,36 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     display: flex; flex-direction: column; gap: 12px;
     animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
   }
-  #taken-lijst { display: flex; flex-direction: column; gap: 4px; }
+  #taken-lijst { display: flex; flex-direction: column; gap: 2px; }
+  .taken-groep { display: flex; flex-direction: column; }
   .taken-groep-titel {
     font-size: .76rem; font-weight: 700; color: var(--muted);
     text-transform: uppercase; letter-spacing: .05em;
-    padding: 10px 2px 2px;
+    padding: 10px 2px 4px;
+  }
+  .taken-groep-lijst { display: flex; flex-direction: column; gap: 4px; min-height: 8px; }
+  .taken-groep-leeg {
+    font-size: .78rem; color: var(--muted); font-style: italic;
+    padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px;
   }
   .taak-row {
     display: flex; align-items: center; gap: 8px;
     padding: 7px 10px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--bg);
+    touch-action: pan-y;
   }
+  .taak-row.taak-dragging {
+    box-shadow: 0 8px 24px rgba(0,0,0,.25); opacity: .95; z-index: 999;
+  }
+  .taak-drop-placeholder {
+    border: 2px dashed var(--primary); border-radius: 8px;
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+  }
+  .taak-drag-handle {
+    flex-shrink: 0; cursor: grab; color: var(--muted); font-size: 1rem;
+    padding: 2px 4px; touch-action: none; line-height: 1;
+  }
+  .taak-drag-handle:active { cursor: grabbing; }
   .taak-check { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }
   .taak-titel { flex: 1; font-size: .88rem; min-width: 0; word-break: break-word; }
   .taak-done .taak-titel { text-decoration: line-through; color: var(--muted); }
