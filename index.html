@@ -2079,7 +2079,13 @@
     const metDatum = openTaken.filter(t => t.datum).sort((a,b) => a.datum.localeCompare(b.datum));
 
     if (taken.length === 0) {
-      lijst.innerHTML = `<div style="color:var(--muted);font-size:.85rem;padding:8px">Nog geen taken. Klik op + om er een toe te voegen.</div>`;
+      lijst.innerHTML = `
+        <div style="text-align:center;padding:28px 8px;color:var(--muted)">
+          <div style="font-size:2rem;margin-bottom:6px">📋</div>
+          <div style="font-weight:600;color:var(--text);margin-bottom:4px">Dit is je takenoverzicht</div>
+          <div style="font-size:.85rem">Nog geen taken — voeg er hieronder eentje toe.</div>
+        </div>
+      `;
       return;
     }
 
