@@ -115,6 +115,23 @@
     return e;
   };
 
+  // ── Android back button ──────────────────────
+  // Start met 2 history entries zodat er altijd een "vorige" is.
+  // BUGFIX: pushNav() stond eerder per ongeluk binnen de
+  // DOMContentLoaded-closure, waardoor functies die daarbuiten
+  // gedefinieerd zijn (bv. openTakenModal, showEventDetail) 'm niet
+  // konden aanroepen - dat gooide een ReferenceError die de rest van
+  // die functie stopzette (dus ook eventuele code ná pushNav() draaide
+  // dan nooit, zoals het vullen van een lijst).
+  history.replaceState({ app: "agenda", idx: 0 }, "");
+  history.pushState(   { app: "agenda", idx: 1 }, "");
+  let _histIdx = 1;
+
+  function pushNav() {
+    _histIdx++;
+    history.pushState({ app: "agenda", idx: _histIdx }, "");
+  }
+
   // ── Auth ─────────────────────────────────────
   document.addEventListener("DOMContentLoaded", () => {
     $("btn-login").addEventListener("click", () => {
@@ -171,17 +188,6 @@
     });
 
     // nav
-    // ── Android back button ──────────────────
-    // Start met 2 history entries zodat er altijd een "vorige" is
-    history.replaceState({ app: "agenda", idx: 0 }, "");
-    history.pushState(   { app: "agenda", idx: 1 }, "");
-    let _histIdx = 1;
-
-    function pushNav() {
-      _histIdx++;
-      history.pushState({ app: "agenda", idx: _histIdx }, "");
-    }
-
     window.addEventListener("popstate", e => {
       // Sluit overlays van buiten naar binnen
       const anyOverlay = [
