@@ -195,7 +195,7 @@
         "export-overlay","rooster-wizard-overlay","gcal-keuze-overlay",
         "detail-overlay","modal-overlay","share-overlay",
         "meldingen-overlay","cleanup-overlay",
-        "taken-overlay","taak-form-overlay","ics-keuze-overlay"
+        "taken-overlay","taak-form-overlay","ics-keuze-overlay","taak-later-overlay"
       ].find(id => $(id) && $(id).style.display === "flex");
 
       if (anyOverlay) {
@@ -214,6 +214,7 @@
         else if (anyOverlay === "taken-overlay")     { $("taken-overlay").style.display = "none"; }
         else if (anyOverlay === "taak-form-overlay") closeTaakForm();
         else if (anyOverlay === "ics-keuze-overlay") { $("ics-keuze-overlay").style.display = "none"; }
+        else if (anyOverlay === "taak-later-overlay") closeTaakLaterModal();
         // Push weer een state zodat de app niet verlaten wordt
         pushNav();
       } else {
@@ -348,6 +349,14 @@
     $("taak-form-overlay").addEventListener("click", e => {
       if (e.target === $("taak-form-overlay")) closeTaakForm();
     });
+    $("btn-taak-later-annuleer").addEventListener("click", closeTaakLaterModal);
+    $("btn-taak-later-bevestig").addEventListener("click", bevestigTaakLater);
+    $("taak-later-overlay").addEventListener("click", e => {
+      if (e.target === $("taak-later-overlay")) closeTaakLaterModal();
+    });
+    // Datum en dagen zijn onderling exclusief: kiezen van de één maakt de ander leeg
+    $("taak-later-datum").addEventListener("change", () => { $("taak-later-dagen").value = ""; });
+    $("taak-later-dagen").addEventListener("input", () => { $("taak-later-datum").value = ""; });
     $("btn-meldingen").addEventListener("click", openMeldingenModal);
     $("btn-meldingen-sluit").addEventListener("click", () => { $("meldingen-overlay").style.display = "none"; });
     $("btn-meldingen-opslaan").addEventListener("click", slaMeldingenOp);
@@ -2245,28 +2254,14 @@
     document.addEventListener("pointerup", onUp, { once: true });
   }
 
+  let _pendingLaterTaakId = null;
+
   async function verwerkTaakDrop(taakId, doelGroep, doelGroepEl) {
     const taak = taken.find(t => t.id === taakId);
     if (!taak) return;
 
     if (doelGroep === "later") {
-      const keuze = prompt(
-        `Wanneer wil je "${taak.title}" weer terugzien?\n\n` +
-        `Typ een aantal dagen (bv. 7), of een datum (JJJJ-MM-DD):`,
-        String(taak.herhaalDagen || 7)
-      );
-      if (keuze === null || !keuze.trim()) { renderTakenLijst(); return; }
-      let nieuweDatum;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(keuze.trim())) {
-        nieuweDatum = keuze.trim();
-      } else {
-        const dagen = parseInt(keuze, 10);
-        if (!dagen || dagen < 1) { showToast("Ongeldige invoer, niets gewijzigd", "warn"); renderTakenLijst(); return; }
-        const d = new Date(); d.setDate(d.getDate() + dagen);
-        nieuweDatum = toDateStr(d);
-      }
-      await updateDoc(doc(db, "taken", taakId), { datum: nieuweDatum });
-      showToast(`⏰ "${taak.title}" komt terug op ${formatDatumKort(nieuweDatum)}`, "ok");
+      openTaakLaterModal(taak);
       return;
     }
 
@@ -2282,6 +2277,49 @@
     // → nieuwe volgorde opslaan voor iedereen in die groep.
     const idsInVolgorde = Array.from(doelGroepEl.querySelectorAll(".taak-row")).map(r => r.dataset.id);
     await Promise.all(idsInVolgorde.map((id, i) => updateDoc(doc(db, "taken", id), { volgorde: i })));
+  }
+
+  function openTaakLaterModal(taak) {
+    _pendingLaterTaakId = taak.id;
+    $("taak-later-tekst").textContent = `Wanneer wil je "${taak.title}" weer terugzien?`;
+    $("taak-later-dagen").value = taak.herhaalDagen || 7;
+    $("taak-later-datum").value = "";
+    $("taak-later-status").textContent = "";
+    $("taak-later-overlay").style.display = "flex";
+    pushNav();
+  }
+
+  function closeTaakLaterModal() {
+    $("taak-later-overlay").style.display = "none";
+    _pendingLaterTaakId = null;
+    renderTakenLijst(); // herstelt de weergave als er geannuleerd is
+  }
+
+  async function bevestigTaakLater() {
+    const taakId = _pendingLaterTaakId;
+    if (!taakId) return;
+    const taak = taken.find(t => t.id === taakId);
+    if (!taak) { closeTaakLaterModal(); return; }
+
+    const datumVeld = $("taak-later-datum").value;   // altijd JJJJ-MM-DD via <input type=date>
+    const dagenVeld = parseInt($("taak-later-dagen").value, 10);
+
+    let nieuweDatum;
+    if (datumVeld) {
+      nieuweDatum = datumVeld;
+    } else if (dagenVeld && dagenVeld > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() + dagenVeld);
+      nieuweDatum = toDateStr(d);
+    } else {
+      $("taak-later-status").textContent = "Vul een aantal dagen in, of kies een datum.";
+      return;
+    }
+
+    await updateDoc(doc(db, "taken", taakId), { datum: nieuweDatum });
+    showToast(`⏰ "${taak.title}" komt terug op ${formatDatumKort(nieuweDatum)}`, "ok");
+    $("taak-later-overlay").style.display = "none";
+    _pendingLaterTaakId = null;
   }
 
   function formatDatumKort(datumStr) {
@@ -3983,17 +4021,26 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #meldingen-status { min-height: 1em; }
 
   /* ── Taken ──────────────────────────────────── */
-  #taken-overlay, #taak-form-overlay {
+  #taken-overlay, #taak-form-overlay, #taak-later-overlay {
     display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,.4); z-index: 200;
     align-items: center; justify-content: center; padding: 16px;
   }
-  #taken-modal, #taak-form-modal {
+  #taken-modal, #taak-form-modal, #taak-later-modal {
     background: var(--surface); border-radius: 16px;
     box-shadow: 0 8px 40px rgba(0,0,0,.2);
     width: 100%; max-width: 440px; padding: 24px;
     display: flex; flex-direction: column; gap: 12px;
     animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
+  }
+  .taak-later-of {
+    text-align: center; font-size: .8rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  #taak-later-dagen, #taak-later-datum {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: .88rem; font-family: var(--font);
+    width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text);
   }
   #taken-lijst { display: flex; flex-direction: column; gap: 2px; }
   .taken-groep { display: flex; flex-direction: column; }
@@ -4886,6 +4933,32 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
       <button id="btn-taak-verwijder" class="btn-ghost" style="color:#d93025">🗑 Verwijderen</button>
       <button id="btn-taak-annuleer" class="btn-ghost">Annuleren</button>
       <button id="btn-taak-opslaan" class="btn-primary">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+<div id="taak-later-overlay">
+  <div id="taak-later-modal">
+    <div class="export-title">⏰ Taak uitstellen</div>
+    <div id="taak-later-tekst" class="export-sub"></div>
+
+    <div class="form-row">
+      <label>Over aantal dagen</label>
+      <input id="taak-later-dagen" type="number" min="1" value="7">
+    </div>
+
+    <div class="taak-later-of">of</div>
+
+    <div class="form-row">
+      <label>Kies een datum</label>
+      <input id="taak-later-datum" type="date">
+    </div>
+
+    <div id="taak-later-status" class="uitnodig-hint"></div>
+
+    <div class="modal-actions">
+      <button id="btn-taak-later-annuleer" class="btn-ghost">Annuleren</button>
+      <button id="btn-taak-later-bevestig" class="btn-primary">Bevestigen</button>
     </div>
   </div>
 </div>
