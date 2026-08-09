@@ -1340,6 +1340,17 @@
     return EVENT_TYPES[ev.type]?.icon || "📅";
   }
 
+  // Titel zoals getoond in de kalender: bij verjaardagen laten we het
+  // voorvoegsel "Verjaardag van " weg (het 🎂-icoontje maakt dat al
+  // duidelijk) - bv. "Verjaardag van Dave" wordt gewoon "Dave".
+  function weergaveTitel(ev) {
+    const titel = (ev.title || "").trim();
+    if (ev.type === "verjaardag") {
+      return titel.replace(/^verjaardag\s+van\s+/i, "").trim() || titel;
+    }
+    return titel;
+  }
+
   // ── MONTH VIEW ───────────────────────────────
   function renderMonth() {
     const grid = $("calendar-grid");
@@ -1421,9 +1432,11 @@
           pill.style.zIndex = (linksRond && rechtsRond) ? "" : (toonTekst ? "2" : "1");
         }
 
-        pill.textContent = toonTekst ? (ev.title || "").trim() : "";
+        const weergave = weergaveTitel(ev);
+        const metIcoon = ev.type === "verjaardag" ? `🎂${weergave}` : weergave;
+        pill.textContent = toonTekst ? metIcoon : "";
         if (!toonTekst) pill.innerHTML = "&nbsp;"; // voorkomt dat een leeg balksegment in elkaar valt
-        pill.title = (ev.title || "").trim(); // volledige titel als tooltip, ook op lege balksegmenten
+        pill.title = metIcoon; // volledige titel als tooltip, ook op lege balksegmenten
 
         // Tekst mag altijd (bij eendaagse ÉN meerdaagse afspraken) zichtbaar
         // over een lege volgende dag heen lopen - fijn leesbaar, en wordt
@@ -1520,7 +1533,7 @@
       const adCol = el("div", "allday-col");
       getEventsForDay(d).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
         const bar = el("div", "allday-bar");
-        bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + (ev.title || "").trim() + "</span>";
+        bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + weergaveTitel(ev) + "</span>";
         const kleurAd = eventColor(ev);
         bar.style.background = kleurAd;
         bar.style.color = contrastText(kleurAd);
@@ -1580,7 +1593,7 @@
     const adRowDay = el("div", "allday-row allday-row-day");
     getEventsForDay(viewDate).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
       const bar = el("div", "allday-bar");
-      bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + (ev.title || "").trim() + "</span>";
+      bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + weergaveTitel(ev) + "</span>";
       bar.style.background = eventColor(ev);
       bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
       adRowDay.appendChild(bar);
@@ -1646,7 +1659,7 @@
     pill.innerHTML = "<span class='tp-icon'>" + eventIcon(ev) + "</span>"
       + "<span class='tp-text'>"
       + (ev.startTime ? "<span class='tp-time'>" + ev.startTime.slice(0,5) + "</span>" : "")
-      + "<span class='tp-title'>" + (ev.title || "").trim() + "</span>"
+      + "<span class='tp-title'>" + weergaveTitel(ev) + "</span>"
       + "</span>";
     pill.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
     col.appendChild(pill);
