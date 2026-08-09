@@ -284,7 +284,7 @@
     $("btn-detail-verwijder").addEventListener("click", async () => {
       const ev = $("detail-overlay")._ev;
       if (!ev || !ev.id) return;
-      if (!confirm(ev.title + " verwijderen?")) return;
+      if (!await bevestigModal(`"${ev.title}" verwijderen?`, { titel: "Afspraak verwijderen" })) return;
       await deleteDoc(doc(db, "events", ev.id));
       closeDetail();
     });
@@ -1389,7 +1389,17 @@
           pill.style.marginLeft = extraLinks ? `-${extraLinks}px` : "0";
           pill.style.marginRight = "0";
           pill.style.position = (linksRond && rechtsRond) ? "" : "relative";
-          pill.style.zIndex = (linksRond && rechtsRond) ? "" : "1";
+          // De tekst-dragende balk krijgt een hogere z-index dan de lege
+          // vervolgsegmenten, zodat de tekst zichtbaar over die segmenten
+          // heen kan "doorlopen" i.p.v. verstopt te raken erachter.
+          pill.style.zIndex = (linksRond && rechtsRond) ? "" : (toonTekst ? "2" : "1");
+          if (toonTekst && !rechtsRond) {
+            // Tekst mag zichtbaar over de volgende (lege) balksegmenten heen
+            // lopen - leesbaarder dan alleen de eerste smalle dagcel.
+            pill.style.overflow = "visible";
+            pill.style.textOverflow = "clip";
+            pill.style.whiteSpace = "nowrap";
+          }
         }
 
         pill.textContent = toonTekst ? (ev.title || "").trim() : "";
@@ -1422,7 +1432,27 @@
         cell.appendChild(tPill);
       });
 
-      cell.addEventListener("click", () => {
+      // Lang indrukken op een lege dag → direct nieuwe afspraak met die
+      // datum vast ingevuld (kort tikken blijft naar dagweergave gaan).
+      let langDrukTimer = null, langDrukBewogen = false, langDrukGevuurd = false;
+      cell.addEventListener("pointerdown", e => {
+        if (e.button !== undefined && e.button !== 0) return;
+        langDrukBewogen = false; langDrukGevuurd = false;
+        langDrukTimer = setTimeout(() => {
+          if (!langDrukBewogen) {
+            langDrukGevuurd = true;
+            if (navigator.vibrate) navigator.vibrate(15);
+            openModal(null, dateObj, true);
+          }
+        }, 500);
+      });
+      cell.addEventListener("pointermove", () => { langDrukBewogen = true; clearTimeout(langDrukTimer); });
+      cell.addEventListener("pointerup",     () => clearTimeout(langDrukTimer));
+      cell.addEventListener("pointercancel", () => clearTimeout(langDrukTimer));
+      cell.addEventListener("contextmenu",   e => e.preventDefault()); // geen browser-contextmenu bij lang indrukken
+
+      cell.addEventListener("click", e => {
+        if (langDrukGevuurd) { langDrukGevuurd = false; e.stopPropagation(); return; }
         viewDate = dateObj; currentView = "day";
         document.querySelectorAll(".view-btn").forEach(x => x.classList.remove("active"));
         document.querySelector('[data-view="day"]').classList.add("active");
@@ -1846,7 +1876,7 @@
     $("detail-overlay").style.display = "none";
   }
 
-  function openModal(ev, prefillDate) {
+  function openModal(ev, prefillDate, prefillAllDay) {
     // Google Calendar events zijn read-only
     if (ev && ev.gcal) {
       showGcalDetail(ev);
@@ -1886,14 +1916,14 @@
       const base = prefillDate || new Date();
       $("ev-title").value      = "";
       $("ev-type").value       = "afspraak";
-      $("ev-allday").checked   = false;
+      $("ev-allday").checked   = !!prefillAllDay;
       $("ev-start-date").value = toISO(base);
       $("ev-end-date").value   = toISO(base);
       $("ev-start-time").value = `${String(base.getHours()).padStart(2,"0")}:00`;
       $("ev-end-time").value   = `${String(base.getHours()+1).padStart(2,"0")}:00`;
       $("ev-desc").value       = "";
       $("ev-repeat").value     = "none";
-      $("time-fields").style.display = "flex";
+      $("time-fields").style.display = prefillAllDay ? "none" : "flex";
     }
 
     updateTypeHint();
