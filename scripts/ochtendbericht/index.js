@@ -132,50 +132,64 @@ function labelVoorEvent(ev) {
   return EVENT_LABELS[ev.type] || "Hele dag";
 }
 
-function bouwTelegramBericht(todayStr, vandaagEvents, calendars) {
+function bouwTelegramBericht(todayStr, vandaagEvents, calendars, openTaken) {
   const titel = titelVoorDag(todayStr);
+  const delen = [];
+
   if (vandaagEvents.length === 0) {
-    return `📅 *${titel}*\n\nGeen afspraken vandaag. Fijne dag! 🌤️`;
+    delen.push("Geen afspraken vandaag. Fijne dag! 🌤️");
+  } else {
+    delen.push(vandaagEvents.map(ev => {
+      const icon = EVENT_ICONS[ev.type] || (ev.gcalImportId ? "📆" : "📅");
+      const tijd = labelVoorEvent(ev);
+      const calNaam = calendars[ev.calendarId]?.name;
+      const titelTekst = escapeMarkdown(ev.title || "(geen titel)");
+      return `${icon} ${tijd ? `*${tijd}* ` : ""}${titelTekst}${calNaam ? ` _(${escapeMarkdown(calNaam)})_` : ""}`;
+    }).join("\n"));
   }
-  const regels = vandaagEvents.map(ev => {
-    const icon = EVENT_ICONS[ev.type] || (ev.gcalImportId ? "📆" : "📅");
-    const tijd = labelVoorEvent(ev);
-    const calNaam = calendars[ev.calendarId]?.name;
-    const titelTekst = escapeMarkdown(ev.title || "(geen titel)");
-    return `${icon} ${tijd ? `*${tijd}* ` : ""}${titelTekst}${calNaam ? ` _(${escapeMarkdown(calNaam)})_` : ""}`;
-  });
-  return `📅 *${titel}*\n\n${regels.join("\n")}`;
+
+  if (openTaken.length > 0) {
+    const taakRegels = openTaken.map(t => `📌 ${escapeMarkdown(t.title || "(geen titel)")}`).join("\n");
+    delen.push(`✅ *Taken*\n${taakRegels}`);
+  }
+
+  return `📅 *${titel}*\n\n${delen.join("\n\n")}`;
 }
 
-function bouwEmailBericht(todayStr, vandaagEvents, calendars) {
+function bouwEmailBericht(todayStr, vandaagEvents, calendars, openTaken) {
   const titel = titelVoorDag(todayStr);
   const subject = `Agenda: ${titel}`;
 
+  const textDelen = [];
+  const htmlDelen = [];
+
   if (vandaagEvents.length === 0) {
-    return {
-      subject,
-      text: `${titel}\n\nGeen afspraken vandaag. Fijne dag!`,
-      html: `<h2>${escapeHtml(titel)}</h2><p>Geen afspraken vandaag. Fijne dag! 🌤️</p>`,
-    };
+    textDelen.push("Geen afspraken vandaag. Fijne dag!");
+    htmlDelen.push("<p>Geen afspraken vandaag. Fijne dag! 🌤️</p>");
+  } else {
+    textDelen.push(vandaagEvents.map(ev => {
+      const tijd = labelVoorEvent(ev);
+      const calNaam = calendars[ev.calendarId]?.name;
+      return `${tijd ? tijd + " - " : ""}${ev.title || "(geen titel)"}${calNaam ? ` (${calNaam})` : ""}`;
+    }).join("\n"));
+
+    htmlDelen.push(`<ul style="font-size:15px;line-height:1.6">${vandaagEvents.map(ev => {
+      const icon = EVENT_ICONS[ev.type] || (ev.gcalImportId ? "📆" : "📅");
+      const tijd = labelVoorEvent(ev);
+      const calNaam = calendars[ev.calendarId]?.name;
+      return `<li>${icon} ${tijd ? `<strong>${escapeHtml(tijd)}</strong> ` : ""}${escapeHtml(ev.title || "(geen titel)")}${calNaam ? ` <span style="color:#888">(${escapeHtml(calNaam)})</span>` : ""}</li>`;
+    }).join("")}</ul>`);
   }
 
-  const textRegels = vandaagEvents.map(ev => {
-    const tijd = labelVoorEvent(ev);
-    const calNaam = calendars[ev.calendarId]?.name;
-    return `${tijd ? tijd + " - " : ""}${ev.title || "(geen titel)"}${calNaam ? ` (${calNaam})` : ""}`;
-  });
-
-  const htmlRegels = vandaagEvents.map(ev => {
-    const icon = EVENT_ICONS[ev.type] || (ev.gcalImportId ? "📆" : "📅");
-    const tijd = labelVoorEvent(ev);
-    const calNaam = calendars[ev.calendarId]?.name;
-    return `<li>${icon} ${tijd ? `<strong>${escapeHtml(tijd)}</strong> ` : ""}${escapeHtml(ev.title || "(geen titel)")}${calNaam ? ` <span style="color:#888">(${escapeHtml(calNaam)})</span>` : ""}</li>`;
-  });
+  if (openTaken.length > 0) {
+    textDelen.push(`Taken:\n${openTaken.map(t => `- ${t.title || "(geen titel)"}`).join("\n")}`);
+    htmlDelen.push(`<h3>✅ Taken</h3><ul style="font-size:15px;line-height:1.6">${openTaken.map(t => `<li>📌 ${escapeHtml(t.title || "(geen titel)")}</li>`).join("")}</ul>`);
+  }
 
   return {
     subject,
-    text: `${titel}\n\n${textRegels.join("\n")}`,
-    html: `<h2>${escapeHtml(titel)}</h2><ul style="font-size:15px;line-height:1.6">${htmlRegels.join("")}</ul>`,
+    text: `${titel}\n\n${textDelen.join("\n\n")}`,
+    html: `<h2>${escapeHtml(titel)}</h2>${htmlDelen.join("")}`,
   };
 }
 
@@ -217,9 +231,10 @@ async function verstuurVoorGebruiker(db, calendars, todayStr, uid, instellingen)
     return;
   }
 
-  const evSnap = await db.collection("events")
-    .where("members", "array-contains", uid)
-    .get();
+  const [evSnap, taakSnap] = await Promise.all([
+    db.collection("events").where("members", "array-contains", uid).get(),
+    db.collection("taken").where("members", "array-contains", uid).get(),
+  ]);
 
   const events = [];
   evSnap.forEach(d => events.push({ id: d.id, ...d.data() }));
@@ -232,8 +247,18 @@ async function verstuurVoorGebruiker(db, calendars, todayStr, uid, instellingen)
       return ta.localeCompare(tb);
     });
 
-  if (vandaagEvents.length === 0 && !meldBijLeeg) {
-    console.log(`${naam}: geen afspraken vandaag en wil geen melding bij lege dag, overgeslagen.`);
+  const taken = [];
+  taakSnap.forEach(d => taken.push({ id: d.id, ...d.data() }));
+
+  // Open taken die vandaag of eerder gepland staan, of geen datum hebben
+  // (dus niet de taken die bewust vooruitgepland zijn naar "Later" - die
+  // horen pas te verschijnen zodra hun datum ook echt aanbreekt).
+  const openTaken = taken
+    .filter(t => !t.done && (!t.datum || t.datum <= todayStr))
+    .sort((a, b) => (a.datum || "").localeCompare(b.datum || "") || (a.title || "").localeCompare(b.title || ""));
+
+  if (vandaagEvents.length === 0 && openTaken.length === 0 && !meldBijLeeg) {
+    console.log(`${naam}: geen afspraken of taken vandaag en wil geen melding bij lege dag, overgeslagen.`);
     return;
   }
 
@@ -242,7 +267,7 @@ async function verstuurVoorGebruiker(db, calendars, todayStr, uid, instellingen)
     if (verstuurd && !FORCE) {
       console.log(`${naam}: Telegram al verstuurd vandaag, overgeslagen.`);
     } else {
-      const bericht = bouwTelegramBericht(todayStr, vandaagEvents, calendars);
+      const bericht = bouwTelegramBericht(todayStr, vandaagEvents, calendars, openTaken);
       await verstuurTelegram(instellingen.telegramChatId, bericht);
       await ref.set({ verstuurdOp: admin.firestore.Timestamp.now() });
       console.log(`${naam}: Telegram-bericht verstuurd.`);
@@ -254,7 +279,7 @@ async function verstuurVoorGebruiker(db, calendars, todayStr, uid, instellingen)
     if (verstuurd && !FORCE) {
       console.log(`${naam}: e-mail al verstuurd vandaag, overgeslagen.`);
     } else {
-      const mail = bouwEmailBericht(todayStr, vandaagEvents, calendars);
+      const mail = bouwEmailBericht(todayStr, vandaagEvents, calendars, openTaken);
       await verstuurEmail(instellingen.emailAdres, mail);
       await ref.set({ verstuurdOp: admin.firestore.Timestamp.now() });
       console.log(`${naam}: e-mail verstuurd.`);
