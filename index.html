@@ -399,6 +399,7 @@
     $("btn-cleanup-sluit").addEventListener("click", closeCleanupModal);
     $("btn-cleanup-zwevend").addEventListener("click", verwijderZwevendeEvents);
     $("btn-cleanup-rooster").addEventListener("click", verwijderRoosterEvents);
+    $("btn-cleanup-einddatum").addEventListener("click", repareerHeleDagEinddatums);
     $("btn-cleanup-alles").addEventListener("click", wisAlles);
 
     // Google import keuze-dialog
@@ -585,7 +586,19 @@
       else if (key === "LOCATION") huidig.location = unescapeICS(waarde);
       else if (key === "DESCRIPTION") huidig.description = unescapeICS(waarde);
       else if (key === "DTSTART" && waarde) Object.assign(huidig, { start: parseICSDatum(waarde) });
-      else if (key === "DTEND" && waarde) Object.assign(huidig, { eind: parseICSDatum(waarde) });
+      else if (key === "DTEND" && waarde) {
+        const eind = parseICSDatum(waarde);
+        // BUGFIX: net als Google Calendar gebruikt het .ics-formaat (RFC
+        // 5545) een EXCLUSIEVE einddatum bij hele-dag-events (de dag ná de
+        // laatste dag) - corrigeren naar onze inclusieve interpretatie,
+        // anders krijgt elk geïmporteerd hele-dag-event er 1 dag bij.
+        if (eind.allDay) {
+          const d = toDate(eind.datum);
+          d.setDate(d.getDate() - 1);
+          eind.datum = toDateStr(d);
+        }
+        Object.assign(huidig, { eind });
+      }
     });
     return gevonden;
   }
@@ -768,8 +781,19 @@
           for (const ev of (data.items || [])) {
             if (ev.status === "cancelled") continue;
             const startDate = (ev.start?.date || ev.start?.dateTime || "").slice(0, 10);
-            const endDate   = (ev.end?.date   || ev.end?.dateTime   || "").slice(0, 10);
+            let endDate     = (ev.end?.date   || ev.end?.dateTime   || "").slice(0, 10);
             if (!startDate) { totaalGeslagen++; continue; }
+
+            // BUGFIX: Google Calendar geeft bij hele-dag-events een
+            // EXCLUSIEVE einddatum terug (de dag ná de laatste dag van het
+            // event) - onze app verwacht een INCLUSIEVE einddatum. Zonder
+            // correctie krijgt elk geïmporteerd hele-dag-event (ook
+            // eendaagse, zoals verjaardagen) er ten onrechte 1 dag bij.
+            if (ev.start?.date && endDate) {
+              const d = toDate(endDate);
+              d.setDate(d.getDate() - 1);
+              endDate = toDateStr(d);
+            }
 
             // Controleer duplicaat op gcalId
             const dupQ = query(collection(db, "events"),
@@ -3292,6 +3316,45 @@ Niet ongedaan te maken.`)) return;
     setTimeout(() => location.reload(), 2000);
   }
 
+  // BUGFIX (eenmalig te draaien): Google Calendar en .ics gebruiken een
+  // EXCLUSIEVE einddatum bij hele-dag-events (de dag ná de laatste dag) -
+  // de importfuncties namen dat eerder klakkeloos over, waardoor elk
+  // geïmporteerd hele-dag-event (ook eendaagse, zoals verjaardagen) een
+  // dag te lang leek te duren. Nieuwe imports zijn al gecorrigeerd; dit
+  // herstelt bestaande, al eerder geïmporteerde events.
+  async function repareerHeleDagEinddatums() {
+    const teRepareren = _cleanupEvs.filter(e =>
+      e.gcalImportId && e.allDay && !e.eindDatumGerepareerd && e.startDate && e.endDate
+    );
+    if (teRepareren.length === 0) { showToast("Niets te repareren gevonden", "info"); return; }
+    if (!await bevestigModal(
+      `${teRepareren.length} geïmporteerde hele-dag-events gevonden waarvan de einddatum ` +
+      `1 dag wordt teruggezet. Dit is veilig en eenmalig (al gerepareerde events worden overgeslagen).`,
+      { titel: "Einddatums repareren", jaLabel: "Repareren", gevaar: false }
+    )) return;
+
+    $("cleanup-status").textContent = "Repareren...";
+    let gelukt = 0;
+    for (let i = 0; i < teRepareren.length; i += 20) {
+      await Promise.all(teRepareren.slice(i, i + 20).map(async e => {
+        const d = toDate(e.endDate);
+        d.setDate(d.getDate() - 1);
+        const nieuweEindDatum = toDateStr(d);
+        // Nooit vóór de startdatum eindigen (voorkomt gekke data bij
+        // eventuele dubbele reparatie of onverwachte input)
+        if (nieuweEindDatum < e.startDate) return;
+        await updateDoc(doc(db, "events", e.id), {
+          endDate: nieuweEindDatum,
+          eindDatumGerepareerd: true,
+        });
+        gelukt++;
+      }));
+      $("cleanup-status").textContent = `Gerepareerd: ${Math.min(i + 20, teRepareren.length)}/${teRepareren.length}`;
+    }
+    showToast(`🩹 ${gelukt} event(s) gerepareerd`, "ok");
+    await openCleanupModal();
+  }
+
   async function verwijderZwevendeEvents() {
     // Haal ALLE calendars op (niet alleen die van deze user)
     // zodat we ook agenda-IDs van verwijderde agenda's detecteren
@@ -4723,12 +4786,14 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
       • <strong>Erwin toegang geven</strong> — voegt Erwin toe aan die agenda én synchroniseert al zijn events (ook als hij al lid was, bv. na een Google-import)<br>
       • <strong>Verwijder agenda</strong> — verwijdert de agenda inclusief alle bijhorende events<br>
       • <strong>Zwevende events</strong> — events zonder agenda (rommel van oude tests)<br>
+      • <strong>Hele-dag-import einddatums repareren</strong> — Google/.ics-import zette bij hele-dag-events de einddatum 1 dag te laat (bekende bug, nu gefixt voor nieuwe imports) - herstelt bestaande, al geïmporteerde events eenmalig<br>
       • <strong>Wis ALLES</strong> — start helemaal opnieuw (leegt de database volledig)
     </div>
 
     <div class="cleanup-actions">
       <button id="btn-cleanup-zwevend" class="btn-orange">🗑 Zwevende events</button>
       <button id="btn-cleanup-rooster" class="btn-orange">🗑 Rooster-events</button>
+      <button id="btn-cleanup-einddatum" class="btn-orange">🩹 Hele-dag-import einddatums repareren</button>
     </div>
     <div style="margin-top:8px;padding:10px;background:#fce8e6;border-radius:8px;border:1px solid #f5c6c2">
       <div style="font-size:.82rem;font-weight:700;color:#d93025;margin-bottom:6px">⚠️ Gevaarlijk</div>
