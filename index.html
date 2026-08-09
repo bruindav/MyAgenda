@@ -195,7 +195,7 @@
         "export-overlay","rooster-wizard-overlay","gcal-keuze-overlay",
         "detail-overlay","modal-overlay","share-overlay",
         "meldingen-overlay","cleanup-overlay",
-        "taken-overlay","taak-form-overlay","ics-keuze-overlay","taak-later-overlay"
+        "taken-overlay","taak-form-overlay","ics-keuze-overlay","taak-later-overlay","confirm-overlay"
       ].find(id => $(id) && $(id).style.display === "flex");
 
       if (anyOverlay) {
@@ -215,6 +215,7 @@
         else if (anyOverlay === "taak-form-overlay") closeTaakForm();
         else if (anyOverlay === "ics-keuze-overlay") { $("ics-keuze-overlay").style.display = "none"; }
         else if (anyOverlay === "taak-later-overlay") closeTaakLaterModal();
+        else if (anyOverlay === "confirm-overlay") sluitConfirmModal(false);
         // Push weer een state zodat de app niet verlaten wordt
         pushNav();
       } else {
@@ -357,6 +358,11 @@
     // Datum en dagen zijn onderling exclusief: kiezen van de één maakt de ander leeg
     $("taak-later-datum").addEventListener("change", () => { $("taak-later-dagen").value = ""; });
     $("taak-later-dagen").addEventListener("input", () => { $("taak-later-datum").value = ""; });
+    $("btn-confirm-ja").addEventListener("click", () => sluitConfirmModal(true));
+    $("btn-confirm-nee").addEventListener("click", () => sluitConfirmModal(false));
+    $("confirm-overlay").addEventListener("click", e => {
+      if (e.target === $("confirm-overlay")) sluitConfirmModal(false);
+    });
     $("btn-meldingen").addEventListener("click", openMeldingenModal);
     $("btn-meldingen-sluit").addEventListener("click", () => { $("meldingen-overlay").style.display = "none"; });
     $("btn-meldingen-opslaan").addEventListener("click", slaMeldingenOp);
@@ -981,7 +987,7 @@
     );
     lst.querySelectorAll(".uitnodig-lid-verwijder").forEach(btn =>
       btn.addEventListener("click", async () => {
-        if (!confirm("Deze persoon geen toegang meer geven tot deze agenda?")) return;
+        if (!await bevestigModal("Deze persoon geen toegang meer geven tot deze agenda?", { jaLabel: "Toegang intrekken" })) return;
         const cal = calendars.find(c => c.id === uitnodigCalId);
         if (!cal) return;
         const nieuw = cal.members.filter(m => m !== btn.dataset.uid);
@@ -1074,7 +1080,7 @@
   }
 
   async function intrekkenUitnodiging(calId, email) {
-    if (!confirm(`Uitnodiging voor ${email} intrekken?`)) return;
+    if (!await bevestigModal(`Uitnodiging voor ${email} intrekken?`, { jaLabel: "Intrekken" })) return;
     const calData = calendars.find(c => c.id === calId);
     if (!calData) return;
     const nieuw = (calData.invites || []).filter(e => e !== email);
@@ -1368,10 +1374,22 @@
           const rechtsRond = isEind  || isWeekEind;
           pill.style.borderRadius = (linksRond ? "3px" : "0") + " " + (rechtsRond ? "3px" : "0") + " "
                                    + (rechtsRond ? "3px" : "0") + " " + (linksRond ? "3px" : "0");
-          // Cel-padding "opheffen" aan de doorlopende zijden zodat de
-          // balk zo strak mogelijk tegen de buurdag aan sluit.
-          pill.style.marginLeft  = linksRond  ? "0" : "-3px";
-          pill.style.marginRight = rechtsRond ? "0" : "-3px";
+          // BUGFIX: .ev-pill heeft width:100%, dus een negatieve marge alleen
+          // verschuift de balk (beide randen mee) i.p.v. 'm breder te maken.
+          // Nodig: width vergroten met calc() voor elke doorlopende zijde, en
+          // alleen aan de linkerzijde ook een even grote negatieve marge (om
+          // de linkerrand naar links te schuiven terwijl de rechterrand door
+          // de extra breedte op zijn plek blijft staan). Kan nu overigens
+          // zichtbaar over de rand heen, omdat .day-cell niet meer
+          // overflow:hidden gebruikt.
+          const overlap = 4; // 3px celpadding + 1px scheidingslijn
+          const extraLinks  = linksRond  ? 0 : overlap;
+          const extraRechts = rechtsRond ? 0 : overlap;
+          pill.style.width = `calc(100% + ${extraLinks + extraRechts}px)`;
+          pill.style.marginLeft = extraLinks ? `-${extraLinks}px` : "0";
+          pill.style.marginRight = "0";
+          pill.style.position = (linksRond && rechtsRond) ? "" : "relative";
+          pill.style.zIndex = (linksRond && rechtsRond) ? "" : "1";
         }
 
         pill.textContent = toonTekst ? (ev.title || "").trim() : "";
@@ -1753,7 +1771,7 @@
       btn.addEventListener("click", async e => {
         e.stopPropagation();
         const naam = btn.dataset.calname;
-        if (!confirm(`Agenda "${naam}" verwijderen?\n\nAlle events worden ook verwijderd.`)) return;
+        if (!await bevestigModal(`Agenda "${naam}" verwijderen?\n\nAlle events worden ook verwijderd.`, { titel: "Agenda verwijderen" })) return;
         await verwijderAgenda(btn.dataset.calid);
       })
     );
@@ -1983,7 +2001,7 @@
 
   async function deleteEvent() {
     if (!editingEvent) return;
-    if (!confirm(`"${editingEvent.title}" verwijderen?`)) return;
+    if (!await bevestigModal(`"${editingEvent.title}" verwijderen?`, { titel: "Afspraak verwijderen" })) return;
     await deleteDoc(doc(db, "events", editingEvent.id));
     closeModal();
   }
@@ -2148,11 +2166,22 @@
     return wrap;
   }
 
+  // Toont een datum relatief als die in de toekomst ligt ("morgen",
+  // "over 5 dagen") - fijn om te zien hoe lang een uitgestelde taak nog
+  // wacht, zonder steeds de kalenderdatum te hoeven omrekenen.
+  function taakDatumLabel(datumStr) {
+    const vandaag = toDateStr(new Date());
+    if (datumStr <= vandaag) return formatDatumKort(datumStr);
+    const diff = Math.round((toDate(datumStr) - toDate(vandaag)) / 86400000);
+    if (diff === 1) return "morgen";
+    return `over ${diff} dagen`;
+  }
+
   function bouwTaakRij(t) {
     const row = el("div", "taak-row" + (t.done ? " taak-done" : ""));
     row.dataset.id = t.id;
-    const datumLabel = t.datum ? formatDatumKort(t.datum) : "";
-    const badges = `${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt ${t.herhaalDagen} dagen na voltooien opnieuw">🔁 na ${t.herhaalDagen}d</span>` : ""}${datumLabel ? `<span class="taak-datum">${datumLabel}</span>` : ""}`;
+    const datumLabel = t.datum ? taakDatumLabel(t.datum) : "";
+    const badges = `${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt ${t.herhaalDagen} dagen na voltooien opnieuw">🔁 na ${t.herhaalDagen}d</span>` : ""}${datumLabel ? `<span class="taak-datum" title="${t.datum}">${datumLabel}</span>` : ""}`;
     row.innerHTML = `
       <div class="taak-row-main">
         <span class="taak-drag-handle" title="Slepen om te herschikken">⠿</span>
@@ -2185,8 +2214,8 @@
       }
     });
     row.querySelector(".taak-edit-btn").addEventListener("click", () => openTaakForm(t));
-    row.querySelector(".taak-del-btn").addEventListener("click", () => {
-      if (confirm(`Taak "${t.title}" verwijderen?`)) deleteDoc(doc(db, "taken", t.id));
+    row.querySelector(".taak-del-btn").addEventListener("click", async () => {
+      if (await bevestigModal(`Taak "${t.title}" verwijderen?`, { titel: "Taak verwijderen" })) deleteDoc(doc(db, "taken", t.id));
     });
     return row;
   }
@@ -2287,6 +2316,24 @@
     $("taak-later-status").textContent = "";
     $("taak-later-overlay").style.display = "flex";
     pushNav();
+  }
+
+  // ── Herbruikbare bevestigingsmodal (i.p.v. lelijke browser-confirm) ──
+  let _confirmResolve = null;
+  function bevestigModal(tekst, { titel = "Bevestigen", jaLabel = "Verwijderen", gevaar = true } = {}) {
+    return new Promise(resolve => {
+      _confirmResolve = resolve;
+      $("confirm-titel").textContent = titel;
+      $("confirm-tekst").textContent = tekst;
+      $("btn-confirm-ja").textContent = jaLabel;
+      $("btn-confirm-ja").classList.toggle("gevaar", gevaar);
+      $("confirm-overlay").style.display = "flex";
+      pushNav();
+    });
+  }
+  function sluitConfirmModal(resultaat) {
+    $("confirm-overlay").style.display = "none";
+    if (_confirmResolve) { _confirmResolve(resultaat); _confirmResolve = null; }
   }
 
   function closeTaakLaterModal() {
@@ -2397,7 +2444,7 @@
 
   async function verwijderHuidigeTaak() {
     if (!editingTaak) return;
-    if (!confirm(`Taak "${editingTaak.title}" verwijderen?`)) return;
+    if (!await bevestigModal(`Taak "${editingTaak.title}" verwijderen?`, { titel: "Taak verwijderen" })) return;
     await deleteDoc(doc(db, "taken", editingTaak.id));
     closeTaakForm();
   }
@@ -2810,7 +2857,7 @@
   }
 
   async function deleteRooster() {
-    if (!confirm("Rooster verwijderen? Dit verwijdert ook alle training-events uit je agenda.")) return;
+    if (!await bevestigModal("Rooster verwijderen? Dit verwijdert ook alle training-events uit je agenda.", { titel: "Rooster verwijderen" })) return;
     await deleteDoc(doc(db, "roosters", currentUser.uid));
     // Verwijder training events
     const q = query(collection(db, "events"),
@@ -3491,7 +3538,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
     cursor: pointer;
-    overflow: hidden;
+    overflow: visible; /* meerdaagse balken mogen over de randlijn heen lopen */
     box-sizing: border-box;
     transition: background .1s;
   }
@@ -4021,18 +4068,22 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   #meldingen-status { min-height: 1em; }
 
   /* ── Taken ──────────────────────────────────── */
-  #taken-overlay, #taak-form-overlay, #taak-later-overlay {
+  #taken-overlay, #taak-form-overlay, #taak-later-overlay, #confirm-overlay {
     display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,.4); z-index: 200;
     align-items: center; justify-content: center; padding: 16px;
   }
-  #taken-modal, #taak-form-modal, #taak-later-modal {
+  #confirm-overlay { z-index: 260; } /* boven andere modals: kan er vanuit geopend worden */
+  #taken-modal, #taak-form-modal, #taak-later-modal, #confirm-modal {
     background: var(--surface); border-radius: 16px;
     box-shadow: 0 8px 40px rgba(0,0,0,.2);
     width: 100%; max-width: 440px; padding: 24px;
     display: flex; flex-direction: column; gap: 12px;
     animation: popIn .18s ease; max-height: 90dvh; overflow-y: auto;
   }
+  #confirm-modal { max-width: 380px; }
+  #confirm-tekst { white-space: pre-line; }
+  #btn-confirm-ja.gevaar { background: #d93025 !important; border-color: #d93025 !important; }
   .taak-later-of {
     text-align: center; font-size: .8rem; color: var(--muted);
     text-transform: uppercase; letter-spacing: .05em;
@@ -4959,6 +5010,17 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div class="modal-actions">
       <button id="btn-taak-later-annuleer" class="btn-ghost">Annuleren</button>
       <button id="btn-taak-later-bevestig" class="btn-primary">Bevestigen</button>
+    </div>
+  </div>
+</div>
+
+<div id="confirm-overlay">
+  <div id="confirm-modal">
+    <div id="confirm-titel" class="export-title">Bevestigen</div>
+    <div id="confirm-tekst" class="export-sub"></div>
+    <div class="modal-actions">
+      <button id="btn-confirm-nee" class="btn-ghost">Annuleren</button>
+      <button id="btn-confirm-ja" class="btn-primary">Verwijderen</button>
     </div>
   </div>
 </div>
