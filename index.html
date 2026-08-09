@@ -1434,25 +1434,10 @@
 
       // Lang indrukken op een lege dag → direct nieuwe afspraak met die
       // datum vast ingevuld (kort tikken blijft naar dagweergave gaan).
-      let langDrukTimer = null, langDrukBewogen = false, langDrukGevuurd = false;
-      cell.addEventListener("pointerdown", e => {
-        if (e.button !== undefined && e.button !== 0) return;
-        langDrukBewogen = false; langDrukGevuurd = false;
-        langDrukTimer = setTimeout(() => {
-          if (!langDrukBewogen) {
-            langDrukGevuurd = true;
-            if (navigator.vibrate) navigator.vibrate(15);
-            openModal(null, dateObj, true);
-          }
-        }, 500);
-      });
-      cell.addEventListener("pointermove", () => { langDrukBewogen = true; clearTimeout(langDrukTimer); });
-      cell.addEventListener("pointerup",     () => clearTimeout(langDrukTimer));
-      cell.addEventListener("pointercancel", () => clearTimeout(langDrukTimer));
-      cell.addEventListener("contextmenu",   e => e.preventDefault()); // geen browser-contextmenu bij lang indrukken
+      const langDrukGevuurd = voegLangDrukToe(cell, () => openModal(null, dateObj, true));
 
       cell.addEventListener("click", e => {
-        if (langDrukGevuurd) { langDrukGevuurd = false; e.stopPropagation(); return; }
+        if (langDrukGevuurd()) { e.stopPropagation(); return; }
         viewDate = dateObj; currentView = "day";
         document.querySelectorAll(".view-btn").forEach(x => x.classList.remove("active"));
         document.querySelector('[data-view="day"]').classList.add("active");
@@ -1529,11 +1514,12 @@
     // Dag-kolommen
     cols.forEach(d => {
       const dc = el("div", "week-day-col");
-      // Uur-slots (klikbaar)
+      // Uur-slots (lang indrukken = nieuwe afspraak op die dag/tijd)
       for (let h = 0; h < 24; h++) {
         const slot = el("div", "hour-slot");
-        slot.addEventListener("click", () => {
-          const dt = new Date(d); dt.setHours(h, 0); openModal(null, dt);
+        voegLangDrukToe(slot, () => {
+          const dt = new Date(d); dt.setHours(h, 0);
+          openModal(null, dt);
         });
         dc.appendChild(slot);
       }
@@ -1582,8 +1568,9 @@
     const dc = el("div", "day-col");
     for (let h = 0; h < 24; h++) {
       const slot = el("div", "hour-slot");
-      slot.addEventListener("click", () => {
-        const dt = new Date(viewDate); dt.setHours(h, 0); openModal(null, dt);
+      voegLangDrukToe(slot, () => {
+        const dt = new Date(viewDate); dt.setHours(h, 0);
+        openModal(null, dt);
       });
       dc.appendChild(slot);
     }
@@ -1874,6 +1861,29 @@
 
   function closeDetail() {
     $("detail-overlay").style.display = "none";
+  }
+
+  // Herbruikbare lang-druk-detectie (voor "nieuwe afspraak op deze plek").
+  // Geeft een functie terug die true teruggeeft als er net een lang-druk
+  // vuurde - handig om een daaropvolgend click-event te kunnen onderdrukken.
+  function voegLangDrukToe(element, callback, duur = 500) {
+    let timer = null, bewogen = false, gevuurd = false;
+    element.addEventListener("pointerdown", e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      bewogen = false; gevuurd = false;
+      timer = setTimeout(() => {
+        if (!bewogen) {
+          gevuurd = true;
+          if (navigator.vibrate) navigator.vibrate(15);
+          callback();
+        }
+      }, duur);
+    });
+    element.addEventListener("pointermove", () => { bewogen = true; clearTimeout(timer); });
+    element.addEventListener("pointerup",     () => clearTimeout(timer));
+    element.addEventListener("pointercancel", () => clearTimeout(timer));
+    element.addEventListener("contextmenu",   e => e.preventDefault());
+    return () => gevuurd;
   }
 
   function openModal(ev, prefillDate, prefillAllDay) {
