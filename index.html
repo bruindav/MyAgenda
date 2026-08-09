@@ -2126,9 +2126,12 @@
     const container = el("div", "taken-groep-lijst" + (isDropTarget ? "" : " taken-groep-lijst-vast"));
     container.dataset.groep = groepId;
     if (takenLijst.length === 0) {
-      container.innerHTML = groepId === "later"
-        ? `<div class="taken-groep-leeg">Sleep hier een taak naartoe om 'm uit te stellen</div>`
-        : `<div class="taken-groep-leeg">&nbsp;</div>`;
+      const leegTekst = {
+        later:      "Sleep hier een taak naartoe om 'm uit te stellen",
+        metdatum:   "Geen taak voor vandaag",
+        zonderdatum: "&nbsp;",
+      }[groepId] || "&nbsp;";
+      container.innerHTML = `<div class="taken-groep-leeg">${leegTekst}</div>`;
     } else {
       takenLijst.forEach(t => container.appendChild(bouwTaakRij(t)));
     }
@@ -2140,14 +2143,16 @@
     const row = el("div", "taak-row" + (t.done ? " taak-done" : ""));
     row.dataset.id = t.id;
     const datumLabel = t.datum ? formatDatumKort(t.datum) : "";
+    const badges = `${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt ${t.herhaalDagen} dagen na voltooien opnieuw">🔁 na ${t.herhaalDagen}d</span>` : ""}${datumLabel ? `<span class="taak-datum">${datumLabel}</span>` : ""}`;
     row.innerHTML = `
-      <span class="taak-drag-handle" title="Slepen om te herschikken">⠿</span>
-      <input type="checkbox" class="taak-check" ${t.done ? "checked" : ""}>
-      <span class="taak-titel">${t.title}</span>
-      ${t.herhaalDagen ? `<span class="taak-herhaal-badge" title="Herhaalt ${t.herhaalDagen} dagen na voltooien opnieuw">🔁 na ${t.herhaalDagen}d</span>` : ""}
-      ${datumLabel ? `<span class="taak-datum">${datumLabel}</span>` : ""}
-      <button class="taak-edit-btn" title="Bewerken">✏️</button>
-      <button class="taak-del-btn" title="Verwijderen">🗑</button>
+      <div class="taak-row-main">
+        <span class="taak-drag-handle" title="Slepen om te herschikken">⠿</span>
+        <input type="checkbox" class="taak-check" ${t.done ? "checked" : ""}>
+        <span class="taak-titel">${t.title}</span>
+        <button class="taak-edit-btn" title="Bewerken">✏️</button>
+        <button class="taak-del-btn" title="Verwijderen">🗑</button>
+      </div>
+      ${badges ? `<div class="taak-row-badges">${badges}</div>` : ""}
     `;
     row.querySelector(".taak-check").addEventListener("change", async e => {
       const nuVoltooid = e.target.checked;
@@ -4003,7 +4008,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px;
   }
   .taak-row {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+    display: flex; flex-direction: column; gap: 4px;
     padding: 7px 10px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--bg);
     touch-action: pan-y;
@@ -4015,6 +4020,12 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     border: 2px dashed var(--primary); border-radius: 8px;
     background: color-mix(in srgb, var(--primary) 8%, transparent);
   }
+  /* Hoofdregel: greep, vinkje, titel, dan de knoppen - deze knoppen staan
+     altijd als laatste twee items op een vaste plek aan de rechterkant,
+     ongeacht hoe lang de titel is (die wrapt zelf, zonder de knoppen te
+     verplaatsen). Badges (herhaal/datum) staan bewust op een aparte regel
+     eronder, zodat ze nooit meewapperen met de titellengte. */
+  .taak-row-main { display: flex; align-items: center; gap: 8px; }
   .taak-drag-handle {
     flex-shrink: 0; cursor: grab; color: var(--muted); font-size: 1rem;
     padding: 2px 4px; touch-action: none; line-height: 1;
@@ -4022,10 +4033,14 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .taak-drag-handle:active { cursor: grabbing; }
   .taak-check { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }
   .taak-titel {
-    flex: 1 1 auto; min-width: 90px; font-size: .88rem;
+    flex: 1 1 auto; min-width: 60px; font-size: .88rem;
     word-break: break-word; overflow-wrap: break-word;
   }
   .taak-done .taak-titel { text-decoration: line-through; color: var(--muted); }
+  .taak-row-badges {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding-left: 26px; /* lijnt uit onder de titel, na greep + vinkje */
+  }
   .taak-datum {
     font-size: .74rem; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent);
     border-radius: 8px; padding: 2px 8px; white-space: nowrap; flex-shrink: 0;
