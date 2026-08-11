@@ -2837,13 +2837,15 @@
       doelCalId = calendars.find(c => c.owner === currentUser.uid)?.id || "";
     }
 
-    // Voeg nieuwe events toe (sla "geen training" weken over)
+    // Voeg nieuwe events toe: alleen de trainingen die op ÉÉN naam staan
+    // (jouw eigen rooster, "naam1") - niet die van je partner ("naam2"),
+    // en sla "geen training"-weken over.
     const batch = config.weken
-      .filter(week => !week.geen)
+      .filter(week => !week.geen && week.wie === "naam1")
       .map(week => ({
         title:      week.invaller
                       ? "Invaller: " + week.invaller
-                      : "Training — " + (week.wie === "naam1" ? config.naam1 : config.naam2),
+                      : "Training — " + config.naam1,
         type:       "training",
         allDay:     !(config.startTime && config.endTime),
         startDate:  week.datum,
