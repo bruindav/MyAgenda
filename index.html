@@ -2837,15 +2837,16 @@
       doelCalId = calendars.find(c => c.owner === currentUser.uid)?.id || "";
     }
 
-    // Voeg nieuwe events toe: alleen de trainingen die op ÉÉN naam staan
-    // (jouw eigen rooster, "naam1") - niet die van je partner ("naam2"),
-    // en sla "geen training"-weken over.
+    // Voeg nieuwe events toe: alleen de trainingen die op jouw naam staan
+    // ("naam1") én waar je zelf ook echt gaat (geen invaller die 'm
+    // overneemt) - niet die van je partner ("naam2"), en sla "geen
+    // training"-weken over. Alleen met jezelf gedeeld, niet met de hele
+    // agenda, zodat het ook niet bij je partner in het ochtendbericht
+    // verschijnt.
     const batch = config.weken
-      .filter(week => !week.geen && week.wie === "naam1")
+      .filter(week => !week.geen && week.wie === "naam1" && !week.invaller)
       .map(week => ({
-        title:      week.invaller
-                      ? "Invaller: " + week.invaller
-                      : "Training — " + config.naam1,
+        title:      "Training",
         type:       "training",
         allDay:     !(config.startTime && config.endTime),
         startDate:  week.datum,
@@ -2857,7 +2858,7 @@
         wie:        week.wie,
         swap:       week.swap,
         notitie:    week.notitie || "",
-        members:    calendarMembers(doelCalId),
+        members:    [currentUser.uid],
         createdAt:  Timestamp.now()
       }));
 
