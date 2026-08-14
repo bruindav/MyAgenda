@@ -137,7 +137,11 @@ function bouwTelegramBericht(todayStr, vandaagEvents, calendars, openTaken) {
   const delen = [];
 
   if (vandaagEvents.length === 0) {
-    delen.push("Geen afspraken vandaag. Fijne dag! 🌤️");
+    if (openTaken.length > 0) {
+      delen.push("Geen afspraken vandaag, maar wel de volgende openstaande taken:");
+    } else {
+      delen.push("Geen afspraken vandaag. Fijne dag! 🌤️");
+    }
   } else {
     delen.push(vandaagEvents.map(ev => {
       const icon = EVENT_ICONS[ev.type] || (ev.gcalImportId ? "📆" : "📅");
@@ -150,7 +154,9 @@ function bouwTelegramBericht(todayStr, vandaagEvents, calendars, openTaken) {
 
   if (openTaken.length > 0) {
     const taakRegels = openTaken.map(t => `📌 ${escapeMarkdown(t.title || "(geen titel)")}`).join("\n");
-    delen.push(`✅ *Taken*\n${taakRegels}`);
+    // Als er al geen afspraken waren, is de "wel de volgende taken"-zin
+    // hierboven al de aankondiging - geen dubbel kopje "Taken" nodig.
+    delen.push(vandaagEvents.length === 0 ? taakRegels : `✅ *Taken*\n${taakRegels}`);
   }
 
   return `📅 *${titel}*\n\n${delen.join("\n\n")}`;
@@ -162,10 +168,16 @@ function bouwEmailBericht(todayStr, vandaagEvents, calendars, openTaken) {
 
   const textDelen = [];
   const htmlDelen = [];
+  const geenAfsprakenMaarWelTaken = vandaagEvents.length === 0 && openTaken.length > 0;
 
   if (vandaagEvents.length === 0) {
-    textDelen.push("Geen afspraken vandaag. Fijne dag!");
-    htmlDelen.push("<p>Geen afspraken vandaag. Fijne dag! 🌤️</p>");
+    if (geenAfsprakenMaarWelTaken) {
+      textDelen.push("Geen afspraken vandaag, maar wel de volgende openstaande taken:");
+      htmlDelen.push("<p>Geen afspraken vandaag, maar wel de volgende openstaande taken:</p>");
+    } else {
+      textDelen.push("Geen afspraken vandaag. Fijne dag!");
+      htmlDelen.push("<p>Geen afspraken vandaag. Fijne dag! 🌤️</p>");
+    }
   } else {
     textDelen.push(vandaagEvents.map(ev => {
       const tijd = labelVoorEvent(ev);
@@ -182,8 +194,14 @@ function bouwEmailBericht(todayStr, vandaagEvents, calendars, openTaken) {
   }
 
   if (openTaken.length > 0) {
-    textDelen.push(`Taken:\n${openTaken.map(t => `- ${t.title || "(geen titel)"}`).join("\n")}`);
-    htmlDelen.push(`<h3>✅ Taken</h3><ul style="font-size:15px;line-height:1.6">${openTaken.map(t => `<li>📌 ${escapeHtml(t.title || "(geen titel)")}</li>`).join("")}</ul>`);
+    if (geenAfsprakenMaarWelTaken) {
+      // Al aangekondigd hierboven - geen dubbel kopje "Taken" nodig.
+      textDelen.push(openTaken.map(t => `- ${t.title || "(geen titel)"}`).join("\n"));
+      htmlDelen.push(`<ul style="font-size:15px;line-height:1.6">${openTaken.map(t => `<li>📌 ${escapeHtml(t.title || "(geen titel)")}</li>`).join("")}</ul>`);
+    } else {
+      textDelen.push(`Taken:\n${openTaken.map(t => `- ${t.title || "(geen titel)"}`).join("\n")}`);
+      htmlDelen.push(`<h3>✅ Taken</h3><ul style="font-size:15px;line-height:1.6">${openTaken.map(t => `<li>📌 ${escapeHtml(t.title || "(geen titel)")}</li>`).join("")}</ul>`);
+    }
   }
 
   return {
