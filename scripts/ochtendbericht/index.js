@@ -138,7 +138,7 @@ function bouwTelegramBericht(todayStr, vandaagEvents, calendars, openTaken) {
 
   if (vandaagEvents.length === 0) {
     if (openTaken.length > 0) {
-      delen.push("Geen afspraken vandaag, maar wel de volgende openstaande taken:");
+      delen.push("Geen afspraken, maar onderstaande taken staan nog op te doen:");
     } else {
       delen.push("Geen afspraken vandaag. Fijne dag! 🌤️");
     }
@@ -172,8 +172,8 @@ function bouwEmailBericht(todayStr, vandaagEvents, calendars, openTaken) {
 
   if (vandaagEvents.length === 0) {
     if (geenAfsprakenMaarWelTaken) {
-      textDelen.push("Geen afspraken vandaag, maar wel de volgende openstaande taken:");
-      htmlDelen.push("<p>Geen afspraken vandaag, maar wel de volgende openstaande taken:</p>");
+      textDelen.push("Geen afspraken, maar onderstaande taken staan nog op te doen:");
+      htmlDelen.push("<p>Geen afspraken, maar onderstaande taken staan nog op te doen:</p>");
     } else {
       textDelen.push("Geen afspraken vandaag. Fijne dag!");
       htmlDelen.push("<p>Geen afspraken vandaag. Fijne dag! 🌤️</p>");
