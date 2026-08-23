@@ -2839,10 +2839,10 @@
 
     // Voeg nieuwe events toe: alleen de trainingen die op jouw naam staan
     // ("naam1") én waar je zelf ook echt gaat (geen invaller die 'm
-    // overneemt) - niet die van je partner ("naam2"), en sla "geen
-    // training"-weken over. Alleen met jezelf gedeeld, niet met de hele
-    // agenda, zodat het ook niet bij je partner in het ochtendbericht
-    // verschijnt.
+    // overneemt) - niet die van je trainingspartner ("naam2"), en sla
+    // "geen training"-weken over. Wél gedeeld met alle leden van de
+    // gekozen agenda (bv. je echtgenoot), zodat zij weten wanneer jij
+    // traint en daar geen andere afspraak overheen plannen.
     const batch = config.weken
       .filter(week => !week.geen && week.wie === "naam1" && !week.invaller)
       .map(week => ({
@@ -2858,7 +2858,7 @@
         wie:        week.wie,
         swap:       week.swap,
         notitie:    week.notitie || "",
-        members:    [currentUser.uid],
+        members:    calendarMembers(doelCalId),
         createdAt:  Timestamp.now()
       }));
 
