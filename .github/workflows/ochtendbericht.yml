@@ -2,7 +2,7 @@ name: Ochtendbericht
 
 on:
   schedule:
-    - cron: '*/30 4-11 * * *'
+    - cron: '7/37 4-11 * * *'
   workflow_dispatch:
     inputs:
       force:
