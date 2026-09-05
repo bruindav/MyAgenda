@@ -487,6 +487,13 @@
       $("time-fields").style.display = $("ev-allday").checked ? "none" : "flex";
     });
 
+    document.querySelectorAll("#ev-kleur-rij .ev-kleur-optie").forEach(btn => {
+      btn.addEventListener("click", () => {
+        $("ev-kleur").value = btn.dataset.kleur;
+        updateEvKleurSelectie();
+      });
+    });
+
     // repeat toggle
     $("ev-repeat").addEventListener("change", toggleRepeatOptions);
 
@@ -1302,6 +1309,7 @@
 
   // ── Event kleur & icoon ──────────────────────
   function eventColor(ev) {
+    if (ev.kleur) return ev.kleur; // optionele, per afspraak gekozen kleur wint altijd
     if (ev.gcal) return "#34a853";
     const type = EVENT_TYPES[ev.type];
     if (type && type.color) return type.color;
@@ -1533,7 +1541,7 @@
       const adCol = el("div", "allday-col");
       getEventsForDay(d).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
         const bar = el("div", "allday-bar");
-        bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + weergaveTitel(ev) + "</span>";
+        bar.innerHTML = "<span class='adbar-title'>" + weergaveTitel(ev) + "</span>";
         const kleurAd = eventColor(ev);
         bar.style.background = kleurAd;
         bar.style.color = contrastText(kleurAd);
@@ -1593,7 +1601,7 @@
     const adRowDay = el("div", "allday-row allday-row-day");
     getEventsForDay(viewDate).filter(ev => ev.allDay || !ev.startTime).forEach(ev => {
       const bar = el("div", "allday-bar");
-      bar.innerHTML = "<span class='adbar-icon'>" + eventIcon(ev) + "</span><span class='adbar-title'>" + weergaveTitel(ev) + "</span>";
+      bar.innerHTML = "<span class='adbar-title'>" + weergaveTitel(ev) + "</span>";
       bar.style.background = eventColor(ev);
       bar.addEventListener("click", e => { e.stopPropagation(); showEventDetail(ev); });
       adRowDay.appendChild(bar);
@@ -1656,8 +1664,7 @@
     const pill = el("div", "timed-pill");
     const kleurTp = eventColor(ev);
     pill.style.cssText = "top:" + top + "px;height:" + height + "px;background:" + kleurTp + ";color:" + contrastText(kleurTp);
-    pill.innerHTML = "<span class='tp-icon'>" + eventIcon(ev) + "</span>"
-      + "<span class='tp-text'>"
+    pill.innerHTML = "<span class='tp-text'>"
       + (ev.startTime ? "<span class='tp-time'>" + ev.startTime.slice(0,5) + "</span>" : "")
       + "<span class='tp-title'>" + weergaveTitel(ev) + "</span>"
       + "</span>";
@@ -1967,6 +1974,7 @@
       $("ev-end-time").value   = ev.endTime   || "10:00";
       $("ev-desc").value       = ev.description || "";
       $("ev-repeat").value     = ev.repeat || "none";
+      $("ev-kleur").value      = ev.kleur || "";
       $("time-fields").style.display = ev.allDay ? "none" : "flex";
     } else {
       $("modal-title-text").textContent  = "Nieuwe afspraak";
@@ -1981,8 +1989,10 @@
       $("ev-end-time").value   = `${String(base.getHours()+1).padStart(2,"0")}:00`;
       $("ev-desc").value       = "";
       $("ev-repeat").value     = "none";
+      $("ev-kleur").value      = "";
       $("time-fields").style.display = prefillAllDay ? "none" : "flex";
     }
+    updateEvKleurSelectie();
 
     updateTypeHint();
     toggleRepeatOptions();
@@ -2034,6 +2044,13 @@
     delete $("modal-overlay").dataset.gcal;
   }
 
+  function updateEvKleurSelectie() {
+    const huidig = $("ev-kleur").value;
+    document.querySelectorAll("#ev-kleur-rij .ev-kleur-optie").forEach(btn => {
+      btn.classList.toggle("selected", btn.dataset.kleur === huidig);
+    });
+  }
+
   function updateTypeHint() {
     const type = $("ev-type").value;
     const t    = EVENT_TYPES[type];
@@ -2073,6 +2090,7 @@
       calendarId:  $("ev-calendar").value,
       repeat:      $("ev-repeat").value,
       repeatEnd:   $("ev-repeat-end").value || null,
+      kleur:       $("ev-kleur").value || null,
       members:     calendarMembers($("ev-calendar").value),
       updatedAt:   Timestamp.now()
     };
@@ -3947,6 +3965,17 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
 
   /* Type selector row */
   .type-row { display: flex; align-items: center; gap: 10px; }
+  .ev-kleur-rij { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .ev-kleur-optie {
+    width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent;
+    cursor: pointer; padding: 0; flex-shrink: 0;
+  }
+  .ev-kleur-optie.selected { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface) inset; }
+  .ev-kleur-geen {
+    background: var(--surface); border: 2px solid var(--border); color: var(--muted);
+    display: flex; align-items: center; justify-content: center; font-size: .8rem;
+  }
+  .ev-kleur-geen.selected { border-color: var(--text); }
   .type-row select { flex: 1; }
   #type-icon-preview { font-size: 1.4rem; }
 
@@ -4689,6 +4718,21 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
         </select>
         <span id="type-icon-preview">📅</span>
       </div>
+    </div>
+
+    <div class="form-row">
+      <label>Kleur <span class="uitnodig-hint" style="display:inline">(optioneel, anders standaardkleur)</span></label>
+      <div id="ev-kleur-rij" class="ev-kleur-rij">
+        <button type="button" class="ev-kleur-optie ev-kleur-geen" data-kleur="" title="Standaardkleur">✕</button>
+        <button type="button" class="ev-kleur-optie" data-kleur="#4285f4" style="background:#4285f4"></button>
+        <button type="button" class="ev-kleur-optie" data-kleur="#0f9d58" style="background:#0f9d58"></button>
+        <button type="button" class="ev-kleur-optie" data-kleur="#db4437" style="background:#db4437"></button>
+        <button type="button" class="ev-kleur-optie" data-kleur="#f4b400" style="background:#f4b400"></button>
+        <button type="button" class="ev-kleur-optie" data-kleur="#ab47bc" style="background:#ab47bc"></button>
+        <button type="button" class="ev-kleur-optie" data-kleur="#00acc1" style="background:#00acc1"></button>
+        <button type="button" class="ev-kleur-optie" data-kleur="#ff7043" style="background:#ff7043"></button>
+      </div>
+      <input type="hidden" id="ev-kleur" value="">
     </div>
 
     <div class="form-inline">
