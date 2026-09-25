@@ -268,7 +268,7 @@
     );
 
     // FAB
-    $("btn-new").addEventListener("click", () => openModal(null));
+    $("btn-new").addEventListener("click", () => openModal(null, viewDate));
 
     // modal
     // Detail-overlay listeners
@@ -2115,7 +2115,10 @@
   // ── Navigation ────────────────────────────────
   function navigate(dir) {
     const d = new Date(viewDate);
-    if      (currentView === "month") d.setMonth(d.getMonth() + dir);
+    if (currentView === "month") {
+      d.setDate(1); // voorkomt maand-overloop (bv. 31 jan + 1 maand -> 3 mrt i.p.v. 28/29 feb)
+      d.setMonth(d.getMonth() + dir);
+    }
     else if (currentView === "week")  d.setDate(d.getDate() + dir * 7);
     else if (currentView === "day")   d.setDate(d.getDate() + dir);
     else                              d.setDate(d.getDate() + dir * 14);
