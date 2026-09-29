@@ -132,8 +132,161 @@
     history.pushState({ app: "agenda", idx: _histIdx }, "");
   }
 
+  // ── Eigen tijdkiezer ──────────────────────────
+  // Native <input type="time"> laat de OS/toestel de picker tekenen,
+  // en dat blijkt per Android-toestel anders te schalen (bv. knoppen
+  // die op sommige Samsung-modellen buiten beeld vallen). Deze eigen
+  // widget (twee scrollbare kolommen, uren/minuten - "de klok") ziet
+  // er overal identiek uit. Rechtstreeks typen via het toetsenbord
+  // blijft daarnaast gewoon werken.
+  function initTijdKiezer(id) {
+    const input = $(id);
+    if (!input) return;
+    input.type = "text";
+    input.setAttribute("inputmode", "numeric");
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("maxlength", "5");
+    input.setAttribute("placeholder", "uu:mm");
+    input.classList.add("tijd-invoer");
+
+    let popup = null;
+
+    function sluitPopup() {
+      if (!popup) return;
+      popup.remove();
+      popup = null;
+      document.removeEventListener("mousedown", buitenKlik, true);
+      document.removeEventListener("scroll", herpositioneer, true);
+      window.removeEventListener("resize", herpositioneer);
+    }
+    function buitenKlik(e) {
+      if (popup && !popup.contains(e.target) && e.target !== input) sluitPopup();
+    }
+    function herpositioneer() {
+      if (!popup) return;
+      const r = input.getBoundingClientRect();
+      const h = popup.offsetHeight;
+      let top = r.bottom + 4;
+      if (top + h > window.innerHeight - 8) top = r.top - h - 4;
+      if (top < 8) top = 8;
+      let left = r.left;
+      if (left + 188 > window.innerWidth - 8) left = window.innerWidth - 196;
+      if (left < 8) left = 8;
+      popup.style.top  = `${top}px`;
+      popup.style.left = `${left}px`;
+    }
+    function huidigeWaarde() {
+      const raw = input.value.trim();
+      let u = 9, min = 0;
+      if (raw) {
+        const m = /^(\d{1,2}):(\d{1,2})$/.exec(raw);
+        if (m) {
+          u = parseInt(m[1], 10);
+          min = parseInt(m[2], 10);
+        } else {
+          const digits = raw.replace(/\D/g, "");
+          if (digits.length >= 3) { u = parseInt(digits.slice(0, 2), 10); min = parseInt(digits.slice(2, 4), 10); }
+          else if (digits.length > 0) { u = parseInt(digits, 10); }
+        }
+      }
+      if (isNaN(u) || u < 0) u = 0; if (u > 23) u = 23;
+      if (isNaN(min) || min < 0) min = 0; if (min > 59) min = 59;
+      return { u, min };
+    }
+    function bouwKolom(max, huidig) {
+      const kolom = el("div", "tijd-kolom");
+      for (let i = 0; i < max; i++) {
+        const opt = el("div", "tijd-optie" + (i === huidig ? " actief" : ""), String(i).padStart(2, "0"));
+        opt.dataset.val = i;
+        kolom.appendChild(opt);
+      }
+      return kolom;
+    }
+    function opnFocus() {
+      if (popup || input.disabled) return;
+      const { u, min } = huidigeWaarde();
+
+      popup = el("div", "tijd-popup");
+      const kolommen = el("div", "tijd-popup-kolommen");
+      const urenKolom = bouwKolom(24, u);
+      const scheiding = el("div", "tijd-popup-scheiding");
+      const minKolom  = bouwKolom(60, min);
+      kolommen.append(urenKolom, scheiding, minKolom);
+
+      const footer  = el("div", "tijd-popup-footer");
+      const klaarBtn = el("button", "", "Klaar");
+      klaarBtn.type = "button";
+      klaarBtn.addEventListener("click", () => { bevestig(); sluitPopup(); });
+      footer.appendChild(klaarBtn);
+
+      popup.append(kolommen, footer);
+      document.body.appendChild(popup);
+      herpositioneer();
+
+      urenKolom.scrollTop = u * 36;
+      minKolom.scrollTop  = min * 36;
+
+      function selecteer(kolom, i) {
+        kolom.querySelectorAll(".tijd-optie").forEach(o => o.classList.remove("actief"));
+        kolom.children[i]?.classList.add("actief");
+      }
+      let scrollTimer = null;
+      function onScroll(kolom) {
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
+          const i = Math.round(kolom.scrollTop / 36);
+          selecteer(kolom, i);
+        }, 80);
+      }
+      urenKolom.addEventListener("scroll", () => onScroll(urenKolom));
+      minKolom.addEventListener("scroll",  () => onScroll(minKolom));
+      urenKolom.addEventListener("click", e => {
+        const opt = e.target.closest(".tijd-optie");
+        if (opt) urenKolom.scrollTo({ top: parseInt(opt.dataset.val, 10) * 36, behavior: "smooth" });
+      });
+      minKolom.addEventListener("click", e => {
+        const opt = e.target.closest(".tijd-optie");
+        if (opt) minKolom.scrollTo({ top: parseInt(opt.dataset.val, 10) * 36, behavior: "smooth" });
+      });
+
+      function bevestig() {
+        const uSel   = urenKolom.querySelector(".tijd-optie.actief");
+        const minSel = minKolom.querySelector(".tijd-optie.actief");
+        const uVal   = uSel   ? String(uSel.dataset.val).padStart(2, "0")   : "09";
+        const minVal = minSel ? String(minSel.dataset.val).padStart(2, "0") : "00";
+        input.value = `${uVal}:${minVal}`;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      document.addEventListener("mousedown", buitenKlik, true);
+      document.addEventListener("scroll", herpositioneer, true);
+      window.addEventListener("resize", herpositioneer);
+    }
+
+    input.addEventListener("focus", opnFocus);
+    input.addEventListener("click", opnFocus);
+
+    // Rechtstreeks typen via toetsenbord: ":" automatisch invoegen.
+    input.addEventListener("input", () => {
+      let v = input.value.replace(/\D/g, "").slice(0, 4);
+      if (v.length >= 3) v = v.slice(0, 2) + ":" + v.slice(2);
+      input.value = v;
+    });
+    input.addEventListener("blur", () => {
+      if (input.value.trim() === "") return;
+      const { u, min } = huidigeWaarde();
+      input.value = `${String(u).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Escape") sluitPopup();
+      if (e.key === "Enter")  { input.blur(); sluitPopup(); }
+    });
+  }
+
   // ── Auth ─────────────────────────────────────
   document.addEventListener("DOMContentLoaded", () => {
+    ["ev-start-time", "ev-end-time", "rw-starttime", "rw-endtime"].forEach(initTijdKiezer);
+
     $("btn-login").addEventListener("click", () => {
       const provider = new GoogleAuthProvider();
       provider.addScope("email");
@@ -4580,6 +4733,47 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .toast-warn  { background: #e65100; }
   .toast-error { background: #b71c1c; }
   .toast-info  { background: #0d47a1; }
+  /* ── Eigen tijdkiezer (i.p.v. native time-input) ─────────── */
+  .tijd-invoer {
+    width: 100%; box-sizing: border-box;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: .95rem;
+    font-variant-numeric: tabular-nums; letter-spacing: .5px;
+  }
+  .tijd-invoer:focus  { border-color: var(--primary); outline: none; }
+  .tijd-invoer:disabled { opacity: .5; }
+  .tijd-popup {
+    position: fixed; z-index: 300; width: 180px; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  }
+  .tijd-popup-kolommen { display: flex; height: 180px; position: relative; }
+  .tijd-popup-kolommen::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 72px; height: 36px;
+    background: rgba(26,115,232,.08);
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    pointer-events: none;
+  }
+  .tijd-kolom {
+    flex: 1; overflow-y: auto; scroll-snap-type: y mandatory;
+    padding: 72px 0; -webkit-overflow-scrolling: touch;
+  }
+  .tijd-kolom::-webkit-scrollbar { width: 0; }
+  .tijd-optie {
+    height: 36px; line-height: 36px; text-align: center;
+    scroll-snap-align: center; font-size: 1.05rem; color: var(--muted);
+    cursor: pointer; user-select: none;
+  }
+  .tijd-optie.actief { color: var(--text); font-weight: 700; }
+  .tijd-popup-scheiding { width: 1px; background: var(--border); }
+  .tijd-popup-footer {
+    display: flex; justify-content: flex-end; padding: 8px 10px;
+    border-top: 1px solid var(--border);
+  }
+  .tijd-popup-footer button {
+    border: none; background: none; color: var(--primary); font-weight: 600;
+    font-size: .9rem; cursor: pointer; padding: 6px 10px;
+  }
 </style>
 </head>
 <body>
@@ -4757,11 +4951,11 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div id="time-fields">
       <div class="form-row">
         <label>Starttijd</label>
-        <input id="ev-start-time" type="time">
+        <input id="ev-start-time" type="text">
       </div>
       <div class="form-row">
         <label>Eindtijd</label>
-        <input id="ev-end-time" type="time">
+        <input id="ev-end-time" type="text">
       </div>
     </div>
 
@@ -5004,11 +5198,11 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <div class="form-row" style="flex:1;min-width:120px">
         <label>Starttijd training</label>
-        <input id="rw-starttime" type="time" value="09:00">
+        <input id="rw-starttime" type="text" value="09:00">
       </div>
       <div class="form-row" style="flex:1;min-width:120px">
         <label>Eindtijd training</label>
-        <input id="rw-endtime" type="time" value="10:30">
+        <input id="rw-endtime" type="text" value="10:30">
       </div>
     </div>
 
