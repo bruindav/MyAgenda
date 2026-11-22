@@ -158,6 +158,18 @@
     input.setAttribute("autocomplete", "off");
     input.setAttribute("placeholder", "uu:mm");
     input.classList.add("tijd-invoer");
+    // Sommige toetsenborden (o.a. Samsung Keyboard) negeren readonly +
+    // inputmode="none" nog steeds en openen tóch het OS-toetsenbord
+    // zodra het veld focus krijgt. Daarom het veld zelf volledig
+    // "onaanraakbaar" maken en een omhullende div de tik laten opvangen
+    // - dan kán het input-element nooit meer native focus krijgen.
+    input.tabIndex = -1;
+    input.style.pointerEvents = "none";
+    const wrap = document.createElement("div");
+    wrap.className = "tijd-wrap";
+    wrap.tabIndex = 0;
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
 
     let popup = null;
 
@@ -171,14 +183,14 @@
       window.visualViewport?.removeEventListener("resize", herpositioneer);
     }
     function buitenKlik(e) {
-      if (popup && !popup.contains(e.target) && e.target !== input) sluitPopup();
+      if (popup && !popup.contains(e.target) && !wrap.contains(e.target)) sluitPopup();
     }
     function zichtbareHoogte() {
       return window.visualViewport ? window.visualViewport.height : window.innerHeight;
     }
     function herpositioneer() {
       if (!popup) return;
-      const r = input.getBoundingClientRect();
+      const r = wrap.getBoundingClientRect();
       const h = popup.offsetHeight;
       const vh = zichtbareHoogte();
       let top = r.bottom + 4;
@@ -328,9 +340,9 @@
       window.visualViewport?.addEventListener("resize", herpositioneer);
     }
 
-    input.addEventListener("focus", opnFocus);
-    input.addEventListener("click", opnFocus);
-    input.addEventListener("keydown", e => {
+    wrap.addEventListener("click", opnFocus);
+    wrap.addEventListener("focus", opnFocus);
+    wrap.addEventListener("keydown", e => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); opnFocus(); }
     });
   }
@@ -4792,6 +4804,7 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .toast-error { background: #b71c1c; }
   .toast-info  { background: #0d47a1; }
   /* ── Eigen tijdkiezer (i.p.v. native time-input) ─────────── */
+  .tijd-wrap { display: block; }
   .tijd-invoer {
     width: 100%; box-sizing: border-box;
     padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
@@ -4800,7 +4813,8 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   }
   .tijd-invoer:focus  { border-color: var(--primary); outline: none; }
   .tijd-invoer:disabled { opacity: .5; }
-  .tijd-invoer[readonly] { cursor: pointer; caret-color: transparent; }
+  .tijd-invoer[readonly] { caret-color: transparent; }
+  .tijd-wrap { cursor: pointer; }
   .tijd-popup {
     position: fixed; z-index: 300; width: 180px; overflow: hidden;
     background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
