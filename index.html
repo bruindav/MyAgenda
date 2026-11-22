@@ -310,10 +310,11 @@
         if (e.key === "Enter")  { e.preventDefault(); bevestig(); sluitPopup(); }
         if (e.key === "Escape") { e.preventDefault(); sluitPopup(); }
       });
-      // Focus het typveld meteen zodat direct typen kan (opent hier
-      // bewust wél het toetsenbord - dat gebeurt nu ín de popup i.p.v.
-      // gelijktijdig met en los van de kolommenkiezer).
-      setTimeout(() => typInput.focus(), 0);
+      // Geen auto-focus op het typveld: zodra het toetsenbord verschijnt
+      // schuift de pagina op mobiel omhoog om het veld zichtbaar te
+      // houden, wat de popup direct bij het openen al liet "springen".
+      // Nu verschijnt het toetsenbord pas als je het typveld bewust
+      // aantikt - scrollen via de kolommen blijft meteen rustig.
 
       function bevestig() {
         const { u: fu, min: fmin } = parseWaarde(typInput.value, ...Object.values(huidigeSelectie()));
@@ -524,6 +525,7 @@
     document.addEventListener("focusin", e => {
       const veld = e.target;
       if (!veld.matches("input, textarea, select")) return;
+      if (veld.readOnly) return; // readonly velden (zoals de tijdkiezer) openen geen toetsenbord
       const overlay = veld.closest('[id$="-overlay"]');
       if (!overlay) return;
       setTimeout(() => {
