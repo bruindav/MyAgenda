@@ -132,8 +132,225 @@
     history.pushState({ app: "agenda", idx: _histIdx }, "");
   }
 
+  // ── Sidebar sluiten ───────────────────────────
+  function closeSidebar() {
+    $("sidebar")?.classList.remove("open");
+    $("sidebar-backdrop")?.classList.remove("show");
+  }
+
+  // ── Eigen tijdkiezer ──────────────────────────
+  // Native <input type="time"> laat de OS/toestel de picker tekenen,
+  // en dat blijkt per Android-toestel anders te schalen (bv. knoppen
+  // die op sommige Samsung-modellen buiten beeld vallen). Deze eigen
+  // widget (twee scrollbare kolommen, uren/minuten - "de klok") ziet
+  // er overal identiek uit.
+  // Het zichtbare veld staat op readonly zodat een tik alléén onze
+  // eigen popup opent, zonder dat het OS-toetsenbord + tekstselectie
+  // ertussendoor komt (dat gaf op sommige toestellen een rommelige
+  // dubbele weergave). Rechtstreeks typen kan nog steeds, via een
+  // apart invoerveldje bóvenin diezelfde popup.
+  function initTijdKiezer(id) {
+    const input = $(id);
+    if (!input) return;
+    input.type = "text";
+    input.readOnly = true;
+    input.setAttribute("inputmode", "none");
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("placeholder", "uu:mm");
+    input.classList.add("tijd-invoer");
+    // Sommige toetsenborden (o.a. Samsung Keyboard) negeren readonly +
+    // inputmode="none" nog steeds en openen tóch het OS-toetsenbord
+    // zodra het veld focus krijgt. Daarom het veld zelf volledig
+    // "onaanraakbaar" maken en een omhullende div de tik laten opvangen
+    // - dan kán het input-element nooit meer native focus krijgen.
+    input.tabIndex = -1;
+    input.style.pointerEvents = "none";
+    const wrap = document.createElement("div");
+    wrap.className = "tijd-wrap";
+    wrap.tabIndex = 0;
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+
+    let popup = null;
+
+    function sluitPopup() {
+      if (!popup) return;
+      popup.remove();
+      popup = null;
+      document.removeEventListener("mousedown", buitenKlik, true);
+      document.removeEventListener("scroll", herpositioneer, true);
+      window.removeEventListener("resize", herpositioneer);
+      window.visualViewport?.removeEventListener("resize", herpositioneer);
+    }
+    function buitenKlik(e) {
+      if (popup && !popup.contains(e.target) && !wrap.contains(e.target)) sluitPopup();
+    }
+    function zichtbareHoogte() {
+      return window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    }
+    function herpositioneer() {
+      if (!popup) return;
+      const r = wrap.getBoundingClientRect();
+      const h = popup.offsetHeight;
+      const vh = zichtbareHoogte();
+      let top = r.bottom + 4;
+      if (top + h > vh - 8) top = r.top - h - 4;
+      if (top < 8) top = 8;
+      if (top + h > vh - 8) top = Math.max(8, vh - h - 8); // popup zelf te hoog voor scherm: gewoon zo hoog mogelijk plaatsen
+      let left = r.left;
+      if (left + 188 > window.innerWidth - 8) left = window.innerWidth - 196;
+      if (left < 8) left = 8;
+      popup.style.top  = `${top}px`;
+      popup.style.left = `${left}px`;
+    }
+    function parseWaarde(raw, fallbackU, fallbackMin) {
+      raw = (raw || "").trim();
+      let u = fallbackU, min = fallbackMin;
+      if (raw) {
+        const m = /^(\d{1,2}):(\d{1,2})$/.exec(raw);
+        if (m) {
+          u = parseInt(m[1], 10);
+          min = parseInt(m[2], 10);
+        } else {
+          const digits = raw.replace(/\D/g, "");
+          if (digits.length >= 3) { u = parseInt(digits.slice(0, 2), 10); min = parseInt(digits.slice(2, 4), 10); }
+          else if (digits.length > 0) { u = parseInt(digits, 10); }
+        }
+      }
+      if (isNaN(u) || u < 0) u = 0; if (u > 23) u = 23;
+      if (isNaN(min) || min < 0) min = 0; if (min > 59) min = 59;
+      return { u, min };
+    }
+    function huidigeWaarde() { return parseWaarde(input.value, 9, 0); }
+    function bouwKolom(max, huidig) {
+      const kolom = el("div", "tijd-kolom");
+      for (let i = 0; i < max; i++) {
+        const opt = el("div", "tijd-optie" + (i === huidig ? " actief" : ""), String(i).padStart(2, "0"));
+        opt.dataset.val = i;
+        kolom.appendChild(opt);
+      }
+      return kolom;
+    }
+    function opnFocus() {
+      if (popup || input.disabled) return;
+      const { u, min } = huidigeWaarde();
+
+      popup = el("div", "tijd-popup");
+
+      const typRij   = el("div", "tijd-popup-typrij");
+      const typInput = el("input", "tijd-popup-invoer");
+      typInput.type = "text";
+      typInput.inputMode = "numeric";
+      typInput.autocomplete = "off";
+      typInput.maxLength = 5;
+      typInput.placeholder = "uu:mm";
+      typInput.value = `${String(u).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+      typRij.appendChild(typInput);
+
+      const kolommen = el("div", "tijd-popup-kolommen");
+      const urenKolom = bouwKolom(24, u);
+      const scheiding = el("div", "tijd-popup-scheiding");
+      const minKolom  = bouwKolom(60, min);
+      kolommen.append(urenKolom, scheiding, minKolom);
+
+      const footer  = el("div", "tijd-popup-footer");
+      const klaarBtn = el("button", "", "Klaar");
+      klaarBtn.type = "button";
+      klaarBtn.addEventListener("click", () => { bevestig(); sluitPopup(); });
+      footer.appendChild(klaarBtn);
+
+      popup.append(typRij, kolommen, footer);
+      document.body.appendChild(popup);
+      herpositioneer();
+
+      urenKolom.scrollTop = u * 36;
+      minKolom.scrollTop  = min * 36;
+
+      function selecteer(kolom, i) {
+        kolom.querySelectorAll(".tijd-optie").forEach(o => o.classList.remove("actief"));
+        kolom.children[i]?.classList.add("actief");
+      }
+      function huidigeSelectie() {
+        const uSel   = urenKolom.querySelector(".tijd-optie.actief");
+        const minSel = minKolom.querySelector(".tijd-optie.actief");
+        return {
+          u:   uSel   ? parseInt(uSel.dataset.val, 10)   : u,
+          min: minSel ? parseInt(minSel.dataset.val, 10) : min
+        };
+      }
+      function schrijfNaarTypveld() {
+        const s = huidigeSelectie();
+        typInput.value = `${String(s.u).padStart(2, "0")}:${String(s.min).padStart(2, "0")}`;
+      }
+
+      let scrollTimer = null;
+      function onScroll(kolom) {
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
+          const i = Math.round(kolom.scrollTop / 36);
+          selecteer(kolom, i);
+          schrijfNaarTypveld();
+        }, 80);
+      }
+      urenKolom.addEventListener("scroll", () => onScroll(urenKolom));
+      minKolom.addEventListener("scroll",  () => onScroll(minKolom));
+      urenKolom.addEventListener("click", e => {
+        const opt = e.target.closest(".tijd-optie");
+        if (opt) urenKolom.scrollTo({ top: parseInt(opt.dataset.val, 10) * 36, behavior: "smooth" });
+      });
+      minKolom.addEventListener("click", e => {
+        const opt = e.target.closest(".tijd-optie");
+        if (opt) minKolom.scrollTo({ top: parseInt(opt.dataset.val, 10) * 36, behavior: "smooth" });
+      });
+
+      // Rechtstreeks typen in het invoerveldje bovenin de popup.
+      typInput.addEventListener("input", () => {
+        let v = typInput.value.replace(/\D/g, "").slice(0, 4);
+        if (v.length >= 3) v = v.slice(0, 2) + ":" + v.slice(2);
+        typInput.value = v;
+        // Zodra er een volledige tijd staat: kolommen live meebewegen.
+        const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+        if (m) {
+          const { u: tu, min: tmin } = parseWaarde(v, u, min);
+          urenKolom.scrollTop = tu * 36;
+          minKolom.scrollTop  = tmin * 36;
+          selecteer(urenKolom, tu);
+          selecteer(minKolom, tmin);
+        }
+      });
+      typInput.addEventListener("keydown", e => {
+        if (e.key === "Enter")  { e.preventDefault(); bevestig(); sluitPopup(); }
+        if (e.key === "Escape") { e.preventDefault(); sluitPopup(); }
+      });
+      // Geen auto-focus op het typveld: zodra het toetsenbord verschijnt
+      // schuift de pagina op mobiel omhoog om het veld zichtbaar te
+      // houden, wat de popup direct bij het openen al liet "springen".
+      // Nu verschijnt het toetsenbord pas als je het typveld bewust
+      // aantikt - scrollen via de kolommen blijft meteen rustig.
+
+      function bevestig() {
+        const { u: fu, min: fmin } = parseWaarde(typInput.value, ...Object.values(huidigeSelectie()));
+        input.value = `${String(fu).padStart(2, "0")}:${String(fmin).padStart(2, "0")}`;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      document.addEventListener("mousedown", buitenKlik, true);
+      document.addEventListener("scroll", herpositioneer, true);
+      window.addEventListener("resize", herpositioneer);
+      window.visualViewport?.addEventListener("resize", herpositioneer);
+    }
+
+    wrap.addEventListener("click", opnFocus);
+    wrap.addEventListener("focus", opnFocus);
+    wrap.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); opnFocus(); }
+    });
+  }
+
   // ── Auth ─────────────────────────────────────
   document.addEventListener("DOMContentLoaded", () => {
+    ["ev-start-time", "ev-end-time", "rw-starttime", "rw-endtime"].forEach(initTijdKiezer);
+
     $("btn-login").addEventListener("click", () => {
       const provider = new GoogleAuthProvider();
       provider.addScope("email");
@@ -320,6 +537,7 @@
     document.addEventListener("focusin", e => {
       const veld = e.target;
       if (!veld.matches("input, textarea, select")) return;
+      if (veld.readOnly) return; // readonly velden (zoals de tijdkiezer) openen geen toetsenbord
       const overlay = veld.closest('[id$="-overlay"]');
       if (!overlay) return;
       setTimeout(() => {
@@ -1893,6 +2111,7 @@
   // ── MODAL ────────────────────────────────────
   // ── Event detail kaart (dag/week weergave) ─────────
   function showEventDetail(ev) {
+    closeSidebar();
     const cal    = calendars.find(c => c.id === ev.calendarId);
     const icon   = eventIcon(ev);
     const color  = eventColor(ev);
@@ -1942,6 +2161,7 @@
   }
 
   function openModal(ev, prefillDate, prefillAllDay) {
+    closeSidebar();
     // Google Calendar events zijn read-only
     if (ev && ev.gcal) {
       showGcalDetail(ev);
@@ -2205,6 +2425,7 @@
   let editingTaak = null;
 
   function openTakenModal() {
+    closeSidebar();
     // Vangnet: als het aanmaak-/bewerkformulier per ongeluk nog open stond
     // (bv. door een eerdere afgebroken actie), sluit dat eerst - anders
     // lijkt het net of er meteen een "nieuwe taak"-kaartje verschijnt
@@ -2485,6 +2706,7 @@
   }
 
   function openTaakForm(taak, prefillDatum) {
+    closeSidebar();
     editingTaak = taak || null;
     $("taak-form-titel").textContent = taak ? "Taak bewerken" : "Nieuwe taak";
     $("taak-titel-input").value = taak ? taak.title : "";
@@ -2738,6 +2960,7 @@
 
   // ── Rooster wizard (aanmaken/bewerken) ───────────────
   function openRoosterWizard() {
+    closeSidebar();
     const cfg = roosterConfig;
     const jaar = cfg?.jaar || new Date().getFullYear();
     const naam1 = cfg?.naam1 || currentUser.displayName?.split(" ")[0] || "Ik";
@@ -4580,6 +4803,58 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
   .toast-warn  { background: #e65100; }
   .toast-error { background: #b71c1c; }
   .toast-info  { background: #0d47a1; }
+  /* ── Eigen tijdkiezer (i.p.v. native time-input) ─────────── */
+  .tijd-wrap { display: block; }
+  .tijd-invoer {
+    width: 100%; box-sizing: border-box;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: .95rem;
+    font-variant-numeric: tabular-nums; letter-spacing: .5px;
+  }
+  .tijd-invoer:focus  { border-color: var(--primary); outline: none; }
+  .tijd-invoer:disabled { opacity: .5; }
+  .tijd-invoer[readonly] { caret-color: transparent; }
+  .tijd-wrap { cursor: pointer; }
+  .tijd-popup {
+    position: fixed; z-index: 300; width: 180px; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  }
+  .tijd-popup-typrij { padding: 10px 10px 0; }
+  .tijd-popup-invoer {
+    width: 100%; box-sizing: border-box; text-align: center;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: 1rem; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: 1px;
+  }
+  .tijd-popup-invoer:focus { border-color: var(--primary); outline: none; }
+  .tijd-popup-kolommen { display: flex; height: 180px; position: relative; }
+  .tijd-popup-kolommen::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 72px; height: 36px;
+    background: rgba(26,115,232,.08);
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    pointer-events: none;
+  }
+  .tijd-kolom {
+    flex: 1; overflow-y: auto; scroll-snap-type: y mandatory;
+    padding: 72px 0; -webkit-overflow-scrolling: touch;
+  }
+  .tijd-kolom::-webkit-scrollbar { width: 0; }
+  .tijd-optie {
+    height: 36px; line-height: 36px; text-align: center;
+    scroll-snap-align: center; font-size: 1.05rem; color: var(--muted);
+    cursor: pointer; user-select: none;
+  }
+  .tijd-optie.actief { color: var(--text); font-weight: 700; }
+  .tijd-popup-scheiding { width: 1px; background: var(--border); }
+  .tijd-popup-footer {
+    display: flex; justify-content: flex-end; padding: 8px 10px;
+    border-top: 1px solid var(--border);
+  }
+  .tijd-popup-footer button {
+    border: none; background: none; color: var(--primary); font-weight: 600;
+    font-size: .9rem; cursor: pointer; padding: 6px 10px;
+  }
 </style>
 </head>
 <body>
@@ -4757,11 +5032,11 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div id="time-fields">
       <div class="form-row">
         <label>Starttijd</label>
-        <input id="ev-start-time" type="time">
+        <input id="ev-start-time" type="text">
       </div>
       <div class="form-row">
         <label>Eindtijd</label>
-        <input id="ev-end-time" type="time">
+        <input id="ev-end-time" type="text">
       </div>
     </div>
 
@@ -5004,11 +5279,11 @@ Deze zijn gekoppeld aan niet-bestaande agenda's.`)) return;
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <div class="form-row" style="flex:1;min-width:120px">
         <label>Starttijd training</label>
-        <input id="rw-starttime" type="time" value="09:00">
+        <input id="rw-starttime" type="text" value="09:00">
       </div>
       <div class="form-row" style="flex:1;min-width:120px">
         <label>Eindtijd training</label>
-        <input id="rw-endtime" type="time" value="10:30">
+        <input id="rw-endtime" type="text" value="10:30">
       </div>
     </div>
 
