@@ -1,0 +1,34 @@
+name: Keepalive
+
+# GitHub schakelt scheduled workflows (zoals Ochtendbericht) automatisch uit
+# na 60 dagen zonder activiteit in de repo. Deze workflow commit elke maand
+# een kleine, onschadelijke wijziging (een tijdstempel-bestandje), zodat de
+# repo altijd als "actief" geldt en Ochtendbericht nooit per ongeluk wordt
+# uitgeschakeld.
+
+on:
+  schedule:
+    - cron: "17 3 1 * *"   # elke 1e van de maand, 03:17 UTC
+  workflow_dispatch:       # handmatig te starten via Actions-tab
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update keepalive timestamp
+        run: |
+          mkdir -p .github
+          echo "Laatste automatische keepalive-commit: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" > .github/keepalive.txt
+
+      - name: Commit en push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive.txt
+          git diff --quiet --cached || git commit -m "Keepalive: voorkom auto-uitschakelen van scheduled workflows"
+          git push
